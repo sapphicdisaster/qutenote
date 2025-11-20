@@ -1,0 +1,43 @@
+<!DOCTYPE RCC>
+<RCC>
+    <qresource prefix="/">
+        <file>resources/icons/custom/new-file.svg</file>
+        <file>resources/icons/custom/save.svg</file>
+        <file>resources/icons/custom/menu.svg</file>
+        <file>resources/icons/custom/close.svg</file>
+        <file>resources/icons/custom/expand.svg</file>
+        <file>resources/icons/custom/file.svg</file>
+        <file>resources/icons/custom/file-minus-2.svg</file>
+        <file>resources/icons/custom/file-plus-2.svg</file>
+        <file>resources/icons/custom/file-x-2.svg</file>
+    <file>resources/icons/custom/folder-plus-2.svg</file>
+    <file>resources/icons/custom/trash.svg</file>
+        <file>resources/icons/custom/folder.svg</file>
+        <file>resources/icons/custom/folder-plus.svg</file>
+        <file>resources/icons/custom/folder-minus.svg</file>
+        <file>resources/icons/custom/align-left.svg</file>
+        <file>resources/icons/custom/align-center.svg</file>
+        <file>resources/icons/custom/align-right.svg</file>
+        <file>resources/icons/custom/align-justify.svg</file>
+        <file>resources/icons/custom/format-painter.svg</file>
+        <file>resources/icons/custom/bold.svg</file>
+        <file>resources/icons/custom/italic.svg</file>
+        <file>resources/icons/custom/underline.svg</file>
+        <file>resources/icons/custom/list-bullet.svg</file>
+        <file>resources/icons/custom/list-numbered.svg</file>
+        <file>resources/icons/custom/link.svg</file>
+        <file>resources/icons/custom/image.svg</file>
+        <file>resources/icons/custom/strike.svg</file>
+        <file>resources/icons/custom/text-color.svg</file>
+        <file>resources/icons/custom/undo.svg</file>
+        <file>resources/icons/custom/redo.svg</file>
+        <file>resources/icons/custom/cut.svg</file>
+        <file>resources/icons/custom/copy.svg</file>
+        <file>resources/icons/custom/paste.svg</file>
+        <file>resources/icons/custom/chevrons-left.svg</file>
+        <file>resources/icons/custom/chevrons-right.svg</file>
+    <file>resources/icons/custom/chevron-down.svg</file>
+    <file>resources/fonts/NunitoSans-Variable.ttf</file>
+    <file>resources/fonts/NunitoSans-Italic-Variable.ttf</file>
+    </qresource>
+</RCC>
