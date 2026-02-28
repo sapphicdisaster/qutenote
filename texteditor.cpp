@@ -1,5 +1,4 @@
 #include "texteditor.h"
-#include <QtCore/qglobal.h>
 #include <QTextDocument>
 #include <QTextCursor>
 #include <QTextList>
@@ -22,11 +21,25 @@
 #include <QThread>
 #include <QCoreApplication>
 #include <QDebug>
+#include <qnamespace.h>
+#include <qcoreevent.h>
+#include <qevent.h>
+#include <qlist.h>
+#include <qeventpoint.h>
+#include <qgesture.h>
+#include <qminmax.h>
+#include <qobject.h>
+#include <qsizepolicy.h>
+#include <qobjectdefs.h>
+#include <exception>
+#include <qlogging.h>
 #include <qstyle.h>
 #include <QLabel>
 #include <QToolButton>
 #include <QFontComboBox>
 #include <QTimer>
+#include <QDesktopServices>
+#include <QUrl>
 #include <QApplication>
 #include <QInputMethod>
 #include <QScroller>
@@ -37,8 +50,18 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include "colorpicker.h"
+#include "componentbase.h"
+#include "smartpointers.h"
 #include "thememanager.h"
 #include "uiutils.h"
+#include <QImageReader>
+#include <QVariant>
+#include <qtextedit.h>
+#include <qtypes.h>
+#include <qtmetamacros.h>
+#include <qwidget.h>
+#include "imagesettingsdialog.h"
+#include "androidcamerahelper.h"
 
 TextEditor::TextEditor(QWidget *parent)
     : QuteNote::ComponentBase(parent)
@@ -93,6 +116,21 @@ void TextEditor::initializeComponent()
     
     // Apply initial theme
     ThemeManager::instance()->applyThemeToEditor(this, ThemeManager::instance()->editorTheme());
+
+    // Setup long-press timer on Android to detect link presses
+#ifdef Q_OS_ANDROID
+    if (!m_longPressTimer) {
+        m_longPressTimer = QuteNote::makeOwned<QTimer>(this);
+        m_longPressTimer->setSingleShot(true);
+        m_longPressTimer->setInterval(m_longPressThresholdMs);
+        connect(m_longPressTimer.get(), &QTimer::timeout, this, &TextEditor::onLongPressDetected, Qt::UniqueConnection);
+    }
+
+    
+    // Connect to AndroidCameraHelper
+    connect(AndroidCameraHelper::instance(), &AndroidCameraHelper::imageReceived,
+            this, &TextEditor::onImageReceived);
+#endif
     
     // Call base implementation
     ComponentBase::initializeComponent();
@@ -196,14 +234,16 @@ void TextEditor::handleMemoryWarning()
 qreal TextEditor::zoomFactor() const
 {
     // QTextEdit doesn't have zoomFactor(), use font size instead
-    if (!m_editor) return 1.0;
+    if (!m_editor) { return 1.0;
+}
     QFont font = m_editor->font();
     return font.pointSizeF() / 12.0; // Assuming 12pt is base size
 }
 
 void TextEditor::setZoomFactor(qreal factor)
 {
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
     // QTextEdit doesn't have setZoomFactor(), use font size instead
     QFont font = m_editor->font();
     font.setPointSizeF(12.0 * factor); // Assuming 12pt is base size
@@ -233,7 +273,7 @@ bool TextEditor::event(QEvent *event)
     case QEvent::TouchUpdate:
     case QEvent::TouchEnd:
     {
-        QTouchEvent *touchEvent = static_cast<QTouchEvent *>(event);
+        QTouchEvent *touchEvent = dynamic_cast<QTouchEvent *>(event);
         const QList<QEventPoint> &points = touchEvent->points();
         
         if (points.isEmpty()) {
@@ -285,11 +325,44 @@ bool TextEditor::event(QEvent *event)
         // On Android, ensure editor focus when touching the editor area
 #ifdef Q_OS_ANDROID
         if (event->type() == QEvent::TouchBegin) {
+            QTouchEvent *touchEvent = dynamic_cast<QTouchEvent *>(event);
+            if (!touchEvent->points().isEmpty()) {
+                m_longPressStartPos = touchEvent->points().first().position();
+                if (m_longPressTimer) {
+                    m_longPressTimer->start(m_longPressThresholdMs);
+                }
+            }
+        } else if (event->type() == QEvent::TouchUpdate) {
+            QTouchEvent *touchEvent = dynamic_cast<QTouchEvent *>(event);
+            if (!touchEvent->points().isEmpty() && m_longPressTimer && m_longPressTimer->isActive()) {
+                QPointF p = touchEvent->points().first().position();
+                if ((p - m_longPressStartPos).manhattanLength() > m_longPressMoveTolerance) {
+                    m_longPressTimer->stop();
+                }
+            }
+        } else if (event->type() == QEvent::TouchEnd) {
+            if (m_longPressTimer) { m_longPressTimer->stop();
+}
         }
 #endif
         
         // Let the base class handle single touch events
+        // Note: Image taps are now exclusively handled by QEvent::MouseButtonRelease in eventFilter
         return QWidget::event(event);
+    }
+    case QEvent::MouseButtonRelease:
+    {
+         // Also handle mouse clicks for desktop testing
+        QMouseEvent *mouseEvent = dynamic_cast<QMouseEvent*>(event);
+        if (mouseEvent->button() == Qt::LeftButton) {
+            QPoint pos = mouseEvent->pos();
+            // Need to map from TextEditor (this) to viewport if the event comes to TextEditor
+            // But TextEditor is the parent of m_editor.
+            // Actually this event handler is on TextEditor, but clicks usually go to m_editor (QTextEdit).
+            // This event handler might not see them unless we filter or m_editor ignores them.
+            // However, we can try to use standard cursor usage if we are careful.
+        }
+        break;
     }
     case QEvent::KeyPress:
     {
@@ -302,7 +375,7 @@ bool TextEditor::event(QEvent *event)
         }
         break;
     case QEvent::Gesture:
-        return gestureEvent(static_cast<QGestureEvent*>(event));
+        return gestureEvent(dynamic_cast<QGestureEvent*>(event));
     case QEvent::FocusIn:
         break;
     case QEvent::FocusOut:
@@ -313,8 +386,184 @@ bool TextEditor::event(QEvent *event)
     return QWidget::event(event);
 }
 
+void TextEditor::showImageSettings(const QRect &rect, const QTextImageFormat &format)
+{
+    if (!m_imageSettingsDialog) {
+        m_imageSettingsDialog = new ImageSettingsDialog(this);
+        connect(m_imageSettingsDialog, &ImageSettingsDialog::settingsChanged, 
+                this, &TextEditor::updateImageSettings);
+                
+        // When the dialog hides (e.g., clicked outside), clear the selection 
+        // to prevent the next random tap from catching the old image selection and reopening.
+        connect(m_imageSettingsDialog, &ImageSettingsDialog::dialogHidden, this, [this]() {
+            if (m_editor) {
+                QTextCursor cursor = m_editor->textCursor();
+                cursor.clearSelection();
+                m_editor->setTextCursor(cursor);
+            }
+        });
+    }
+
+    // Determine current width percentage relative to viewport
+    // Note: This matches the resize logic in insertImage
+    int viewportWidth = m_editor->viewport()->width() - 32;
+    int currentWidth = format.width();
+    int pct = qBound(10, (int)((double)currentWidth / viewportWidth * 100.0), 100);
+
+    // Retrieve original size from format property
+    // This avoids expensive file I/O operations (which hang the UI thread on Android content URIs)
+    QSize originalSize;
+    QVariant sizeProp = format.property(QTextFormat::UserProperty + 1);
+    if (sizeProp.isValid() && sizeProp.canConvert<QSize>()) {
+        originalSize = sizeProp.toSize();
+    } else {
+        // Fallback: If not stored, just use the current rendering bounds.
+        // DO NOT use QImageReader synchronously on the UI thread! It causes 5s ANRs on Android.
+        originalSize = QSize(currentWidth, format.height());
+    }
+
+    // Determine alignment from block format (since alignment is block-level for images usually)
+    QTextCursor cursor = m_editor->textCursor();
+    Qt::Alignment align = cursor.blockFormat().alignment();
+
+    m_imageSettingsDialog->setImageProperties(pct, align);
+    
+    // Ensure the frame sizes itself according to its layout content before moving and showing
+    m_imageSettingsDialog->adjustSize();
+    
+    // Position the dialog near the image inside the editor
+    QPoint localPos = m_editor->viewport()->mapTo(this, rect.center());
+    // Use the actual computed size of the dialog
+    int dialogWidth = m_imageSettingsDialog->width();
+    int dialogHeight = m_imageSettingsDialog->height();
+    
+    int x = localPos.x() - (dialogWidth / 2);
+    int y = localPos.y() - dialogHeight - 20; // Above the image
+    
+    // Ensure on screen within this widget
+    if (x < 10) { x = 10;
+}
+    if (x + dialogWidth > width() - 10) { x = width() - dialogWidth - 10;
+}
+    if (y < 10) { y = localPos.y() + (rect.height() / 2) + 20; // Flip to below if no space above
+}
+    
+    m_imageSettingsDialog->move(x, y);
+    m_imageSettingsDialog->show();
+    m_imageSettingsDialog->raise();
+}
+
+void TextEditor::updateImageSettings(int widthPct, Qt::Alignment alignment)
+{
+    if (!m_editor) { return;
+}
+    
+    QTextCursor cursor = m_currentImageCursor;
+    if (cursor.isNull()) { return;
+}
+    
+    // Update Alignment (Block level)
+    QTextBlockFormat blockFmt = cursor.blockFormat();
+    if (blockFmt.alignment() != alignment) {
+        blockFmt.setAlignment(alignment);
+        cursor.setBlockFormat(blockFmt);
+    }
+    
+    // Update Size (Char format)
+    QTextCharFormat charFmt = cursor.charFormat();
+    if (charFmt.isImageFormat()) {
+        QTextImageFormat imageFmt = charFmt.toImageFormat();
+        
+        // Retrieve original size again from property (very fast, just property lookup)
+        QSize originalSize;
+        QVariant sizeProp = imageFmt.property(QTextFormat::UserProperty + 1);
+        if (sizeProp.isValid() && sizeProp.canConvert<QSize>()) {
+            originalSize = sizeProp.toSize();
+        } else {
+            // Fallback - Avoid file I/O here to prevent ANR crash
+            originalSize = QSize(imageFmt.width(), imageFmt.height()); 
+        }
+
+        // Calculate new size
+        int viewportWidth = m_editor->viewport()->width() - 32;
+        int newWidth = (int)(viewportWidth * (widthPct / 100.0));
+        
+        // Preserve aspect ratio using retrieved size
+        if (originalSize.isValid() && originalSize.width() > 0) {
+             double ratio = (double)newWidth / originalSize.width();
+             int newHeight = (int)(originalSize.height() * ratio);
+             
+             if (imageFmt.width() != newWidth) {
+                 imageFmt.setWidth(newWidth);
+                 imageFmt.setHeight(newHeight);
+                 
+                 // Apply change
+                 cursor.setCharFormat(imageFmt);
+             }
+        }
+    }
+}
+
 bool TextEditor::eventFilter(QObject *obj, QEvent *event)
 {
+    // Handle touches on the editor viewport to detect image taps
+    if (m_editor && obj == m_editor->viewport()) {
+        if (event->type() == QEvent::MouseButtonRelease) {
+             QMouseEvent *mouseEvent = dynamic_cast<QMouseEvent*>(event);
+             if (mouseEvent->button() == Qt::LeftButton) {
+                QPoint pos = mouseEvent->pos();
+                QTextCursor cursor = m_editor->cursorForPosition(pos);
+                
+                // Detection logic: check char before (current charFormat) and char after (move Right)
+                // We need to SELECT the image for mergeCharFormat to work during resizing
+                
+                bool isImage = false;
+                QTextCursor workingCursor = cursor;
+
+                // Check "before" (standard behavior if clicked on right half of image)
+                if (cursor.charFormat().isImageFormat()) {
+                    isImage = true;
+                    // Select backwards to cover the image
+                    workingCursor.movePosition(QTextCursor::Left, QTextCursor::KeepAnchor);
+                } 
+                else {
+                    // Check "after" (if clicked on left half)
+                    QTextCursor next = cursor;
+                    if (next.movePosition(QTextCursor::Right)) {
+                        if (next.charFormat().isImageFormat()) {
+                             isImage = true;
+                             // We are now after the image with 'next'. Select backwards.
+                             workingCursor = next;
+                             workingCursor.movePosition(QTextCursor::Left, QTextCursor::KeepAnchor);
+                        }
+                    }
+                }
+
+                if (isImage) {
+                    // DO NOT call m_editor->setTextCursor(workingCursor) here!
+                    // Setting the text cursor to an active selection triggers the Android IMM 
+                    // (Input Method Manager) to display native text selection handles and the Action Mode.
+                    // This frequently deadlocks the Qt application thread for 5+ seconds (ANR timeout).
+
+                    // Save the cursor reliably so we can modify it later without relying on the editor's live cursor
+                    m_currentImageCursor = workingCursor;
+
+                    // Get rect from the selection
+                    QRect rect = m_editor->cursorRect(workingCursor);
+                    QTextImageFormat format = workingCursor.charFormat().toImageFormat();
+                    
+                    // Show floating frame settings
+                    showImageSettings(rect, format);
+                    
+                    // Consume the event so QTextEdit doesn't change the cursor and open the keyboard
+                    // Actually, if we return true, Qt gets confused and the keyboard locks up on subsequent taps. 
+                    // Let the event propagate (return false) so the text cursor updates locally.
+                    return false; 
+                }
+             }
+        }
+    }
+
     // Handle touch events for toolbar and toolbar buttons
     if (event->type() == QEvent::TouchBegin || 
         event->type() == QEvent::TouchUpdate || 
@@ -344,13 +593,8 @@ bool TextEditor::eventFilter(QObject *obj, QEvent *event)
         }
     }
     
-    // Handle resize events to ensure proper layout
-    if (event->type() == QEvent::Resize) {
-        // Force the editor to update its layout
-        if (m_editor) {
-            m_editor->updateGeometry();
-        }
-    }
+    // (Removed dangerous QEvent::Resize interception containing m_editor->updateGeometry() 
+    // which caused infinite layout loops on Android when QFrame overlays were shown)
     
     // Let the base class handle other events
     return ComponentBase::eventFilter(obj, event);
@@ -358,7 +602,7 @@ bool TextEditor::eventFilter(QObject *obj, QEvent *event)
 
 bool TextEditor::gestureEvent(QGestureEvent *event)
 {
-    if (QPinchGesture *pinch = static_cast<QPinchGesture *>(event->gesture(Qt::PinchGesture))) {
+    if (QPinchGesture *pinch = dynamic_cast<QPinchGesture *>(event->gesture(Qt::PinchGesture))) {
         if (pinch->changeFlags() & QPinchGesture::ScaleFactorChanged) {
             // Handle pinch zoom
             return true;
@@ -370,16 +614,8 @@ bool TextEditor::gestureEvent(QGestureEvent *event)
 void TextEditor::resizeEvent(QResizeEvent *event)
 {
     // Call the base class implementation first
+    // Normal Qt layout mechanisms will handle the resizing of the child text editor
     QWidget::resizeEvent(event);
-    
-    // Let Qt's layout system handle the resizing
-    if (m_editor) {
-        m_editor->updateGeometry();
-    }
-    
-    if (layout()) {
-        layout()->activate();
-    }
 }
 
 void TextEditor::showEvent(QShowEvent *event)
@@ -421,7 +657,7 @@ void TextEditor::setupUI()
     m_toolbar->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
     // Ensure a stable, fixed toolbar height to avoid vertical bounce
     const int toolBtnHeight = 48;            // touch target for buttons
-    const int toolbarVPadding = 8;           // extra vertical padding to lock height
+    const int toolbarVPadding = 12;           // extra vertical padding to lock height (increased from 8)
     const int toolbarFixedH = toolBtnHeight + toolbarVPadding;
     m_toolbar->setFixedHeight(toolbarFixedH);
     
@@ -450,9 +686,10 @@ void TextEditor::setupUI()
     // Reserve exact space for the horizontal scrollbar under the toolbar, so there's no vertical scroll of buttons
     {
         const int scrollBarExtent = style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, m_toolbarArea.get());
-        const int extraPad = 2;  // match FileBrowser padding; kills 1-2px jiggle on some styles
+        const int extraPad = 4;  // match FileBrowser padding; kills 1-2px jiggle on some styles (increased from 2)
         int effectiveToolbarH = m_toolbar->height();
-        if (effectiveToolbarH <= 0) effectiveToolbarH = toolbarFixedH;
+        if (effectiveToolbarH <= 0) { effectiveToolbarH = toolbarFixedH;
+}
         // Reserve exact vertical space equal to the toolbar's actual height to avoid vertical bounce
         m_toolbarArea->setFixedHeight(effectiveToolbarH + scrollBarExtent + extraPad);
     }
@@ -469,7 +706,6 @@ void TextEditor::setupUI()
         sp.setScrollMetric(QScrollerProperties::VerticalOvershootPolicy, QScrollerProperties::OvershootAlwaysOff);
     // Strongly lock to horizontal to help prevent tiny vertical drift
     sp.setScrollMetric(QScrollerProperties::AxisLockThreshold, 1.0);
-        sp.setScrollMetric(QScrollerProperties::DecelerationFactor, 0.05);
         sp.setScrollMetric(QScrollerProperties::DragStartDistance, 0.01);
         sp.setScrollMetric(QScrollerProperties::MaximumVelocity, 1.0);
         scroller->setScrollerProperties(sp);
@@ -487,6 +723,9 @@ void TextEditor::setupUI()
 
     // Install event filter on the viewport for touch/focus handling
     m_toolbarArea->viewport()->installEventFilter(this);
+    if (m_editor) {
+        m_editor->viewport()->installEventFilter(this);
+    }
 
     // Set up layout with proper flexbox-like behavior
     // Note: QVBoxLayout parent ownership - when passing 'this', the layout is automatically
@@ -668,7 +907,8 @@ void TextEditor::setupToolbar()
     
     // Insert actions
     actions.clear();
-    actions << m_linkAction.get() << m_imageAction.get();
+    actions.clear();
+    actions << m_linkAction.get() << m_imageAction.get() << m_cameraAction.get();
     
     for (QAction* action : actions) {
         m_toolbar->addAction(action);
@@ -692,11 +932,7 @@ void TextEditor::setupToolbar()
     // They are no longer added to the toolbar to prevent clipping issues
     
     // Ensure toolbar is properly sized for mobile (fixed height to avoid jiggle)
-    {
-        const int toolbarVPadding = 8;
-        // Use touchTarget for proper height (icon height + room for scrollbar)
-        m_toolbar->setFixedHeight(theme.metrics.touchTarget + toolbarVPadding);
-    }
+    updateToolbarTheme();
     
     // For Android, ensure proper touch handling
 #ifdef Q_OS_ANDROID
@@ -719,7 +955,7 @@ void TextEditor::setupToolbar()
     updateToolbarContentWidth();
 }
 
-void TextEditor::createToolbarSection(const QString &title, const QList<QAction*> &actions)
+void TextEditor::createToolbarSection(const QString & /*title*/, const QList<QAction*> &actions)
 {
     // This method is kept for compatibility but we're using a more direct approach
     // in setupToolbar for better overflow handling
@@ -767,7 +1003,8 @@ void TextEditor::setupEditor()
     
     // Ensure the editor properly responds to size changes
     m_editor->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    m_editor->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_editor->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_editor->setLineWrapMode(QTextEdit::WidgetWidth);
     m_editor->setWordWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
     
     // Configure the viewport to expand properly
@@ -803,7 +1040,7 @@ void TextEditor::setupEditor()
     
     // Additional fix for proper resizing
     m_editor->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    m_editor->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_editor->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     
     // Set focus proxy for the text editor widget itself
     setFocusProxy(m_editor.get());
@@ -897,6 +1134,10 @@ void TextEditor::setupActions()
     m_imageAction->setIcon(QIcon(":/resources/icons/custom/image.svg"));
     connect(m_imageAction.get(), &QAction::triggered, this, &TextEditor::onInsertImage);
 
+    m_cameraAction = QuteNote::makeOwned<QAction>("Camera", this);
+    m_cameraAction->setIcon(QIcon(":/resources/icons/custom/camera.svg"));
+    connect(m_cameraAction.get(), &QAction::triggered, this, &TextEditor::onInsertCameraImage);
+
     // Undo/Redo actions
     m_undoAction = QuteNote::makeOwned<QAction>("Undo", this);
     m_undoAction->setIcon(QIcon(":/resources/icons/custom/undo.svg"));
@@ -971,7 +1212,8 @@ void TextEditor::setupActions()
 
 void TextEditor::applyOverlayButtonTheme()
 {
-    if (!m_overscrollLeftWidget || !m_overscrollRightWidget) return;
+    if (!m_overscrollLeftWidget || !m_overscrollRightWidget) { return;
+}
     Theme theme = ThemeManager::instance()->currentTheme();
 
     // Slightly smaller than touchTarget to avoid overlap; keep at least 36 tall
@@ -980,7 +1222,8 @@ void TextEditor::applyOverlayButtonTheme()
     const int iconSz = qMax(20, theme.metrics.iconSize);
 
     auto setBtn = [&](QToolButton* btn){
-        if (!btn) return;
+        if (!btn) { return;
+}
         // Lock the overlay button to the exact desired size so it doesn't get stretched by layouts
         btn->setFixedSize(width, height);
         btn->setIconSize(QSize(iconSz, iconSz));
@@ -1013,7 +1256,8 @@ void TextEditor::applyOverlayButtonTheme()
     setBtn(m_overscrollRightWidget.get());
 
     // Update after theme apply
-    if (layout()) layout()->activate();
+    if (layout()) { layout()->activate();
+}
 
     // Toolbar button sizes depend on icon metrics, so refresh width bounds too
     updateToolbarContentWidth();
@@ -1021,7 +1265,8 @@ void TextEditor::applyOverlayButtonTheme()
 
 void TextEditor::updateToolbarTheme()
 {
-    if (!m_toolbar) return;
+    if (!m_toolbar) { return;
+}
     
     Theme theme = ThemeManager::instance()->currentTheme();
     
@@ -1050,13 +1295,14 @@ void TextEditor::updateToolbarTheme()
     }
     
     // Update toolbar height
-    const int toolbarVPadding = 8;
+    // Update toolbar height
+    const int toolbarVPadding = 12; // Increased padding to prevent clipping
     m_toolbar->setFixedHeight(theme.metrics.touchTarget + toolbarVPadding);
     
     // Update toolbar area height to match (toolbar + scrollbar)
     if (m_toolbarArea) {
         const int scrollBarExtent = style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, m_toolbarArea.get());
-        const int extraPad = 2;
+        const int extraPad = 4; // Increased padding to prevent clipping
         int effectiveToolbarH = m_toolbar->height();
         m_toolbarArea->setFixedHeight(effectiveToolbarH + scrollBarExtent + extraPad);
     }
@@ -1114,7 +1360,8 @@ void TextEditor::setupMenus()
 
 void TextEditor::setContent(const QString &content)
 {
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
     m_editor->setHtml(content);
     m_modified = false;
     emit modificationChanged(false);
@@ -1122,7 +1369,8 @@ void TextEditor::setContent(const QString &content)
 
 QString TextEditor::getContent() const
 {
-    if (!m_editor) return QString();
+    if (!m_editor) { return {};
+}
     return m_editor->toHtml();
 }
 
@@ -1244,7 +1492,8 @@ void TextEditor::onTextColor()
         return;
     }
 
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
 
     try {
         QColor currentColor = m_editor->textColor();
@@ -1270,7 +1519,8 @@ void TextEditor::onFontChanged(const QFont &font)
         return;
     }
 
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
     
     try {
         QTextCharFormat fmt;
@@ -1308,11 +1558,13 @@ void TextEditor::onFontSizeChanged(const QString &size)
         return;
     }
 
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
     
     bool ok;
     int fontSize = size.toInt(&ok);
-    if (!ok || fontSize <= 0) return;
+    if (!ok || fontSize <= 0) { return;
+}
     
     try {
         QTextCharFormat fmt;
@@ -1354,7 +1606,8 @@ void TextEditor::onBackgroundColor()
         return;
     }
 
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
 
     try {
         QColor currentColor = m_editor->textBackgroundColor();
@@ -1374,25 +1627,29 @@ void TextEditor::onBackgroundColor()
 
 void TextEditor::onAlignLeft()
 {
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
     m_editor->setAlignment(Qt::AlignLeft);
 }
 
 void TextEditor::onAlignCenter()
 {
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
     m_editor->setAlignment(Qt::AlignCenter);
 }
 
 void TextEditor::onAlignRight()
 {
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
     m_editor->setAlignment(Qt::AlignRight);
 }
 
 void TextEditor::onAlignJustify()
 {
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
     m_editor->setAlignment(Qt::AlignJustify);
 }
 
@@ -1408,7 +1665,8 @@ void TextEditor::onNumberedList()
 
 void TextEditor::onInsertLink()
 {
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
     
     bool ok;
     QString url = QInputDialog::getText(this, "Insert Link",
@@ -1421,22 +1679,83 @@ void TextEditor::onInsertLink()
         format.setAnchorHref(url);
         format.setForeground(Qt::blue);
         format.setFontUnderline(true);
-        cursor.mergeCharFormat(format);
-        cursor.insertText(url);
+        if (cursor.hasSelection()) {
+            // Apply link format to selected text
+            cursor.mergeCharFormat(format);
+        } else {
+            // No selection - insert the URL text formatted as a link
+            cursor.mergeCharFormat(format);
+            cursor.insertText(url);
+        }
     }
 }
 
 void TextEditor::onInsertImage()
 {
-    if (!m_editor) return;
-    
+    if (!m_editor) { return;
+}
+
     QString fileName = QFileDialog::getOpenFileName(this,
         "Insert Image", "", "Images (*.png *.jpg *.jpeg *.gif *.bmp)");
     if (!fileName.isEmpty()) {
-        QTextImageFormat imageFormat;
-        imageFormat.setName(fileName);
-        m_editor->textCursor().insertImage(imageFormat);
+        insertImage(fileName);
     }
+}
+
+void TextEditor::onInsertCameraImage()
+{
+    if (!m_editor) { return;
+}
+
+#ifdef Q_OS_ANDROID
+    AndroidCameraHelper::instance()->openCamera();
+#else
+    QMessageBox::information(this, tr("Camera"), tr("Camera capture is only supported on Android devices."));
+#endif
+}
+
+void TextEditor::insertImage(const QString &imagePath)
+{
+    if (!m_editor || imagePath.isEmpty()) { return;
+}
+    
+    QTextImageFormat imageFormat;
+    imageFormat.setName(imagePath);
+    
+    // Resize image to fit screen width (minus margins)
+    QImageReader reader(imagePath);
+    QSize originalSize = reader.size();
+    
+    if (originalSize.isValid()) {
+        // Store the original size in the format so we can retrieve it later for resizing
+        // avoiding expensive file I/O
+        imageFormat.setProperty(QTextFormat::UserProperty + 1, originalSize);
+
+        int viewportWidth = m_editor->viewport()->width();
+        // Use a sensible margin (e.g. 32px total)
+        int cleanWidth = qMax(100, viewportWidth - 32);
+        
+        if (originalSize.width() > cleanWidth) {
+            imageFormat.setWidth(cleanWidth);
+            // Height is automatically calculated by QTextEdit to preserve aspect ratio 
+            // if we don't set it, or we can calculate it explicitly.
+            // Explicitly setting height ensures consistency.
+            double ratio = (double)cleanWidth / originalSize.width();
+            imageFormat.setHeight((int)(originalSize.height() * ratio));
+        } else {
+            // Even if smaller, we might want to ensure it's not huge if the window is resized later?
+            // For now, let's keep original size if it fits.
+            imageFormat.setWidth(originalSize.width());
+            imageFormat.setHeight(originalSize.height());
+        }
+    }
+    
+    m_editor->textCursor().insertImage(imageFormat);
+}
+
+void TextEditor::onImageReceived(const QString &imagePath)
+{
+    insertImage(imagePath);
 }
 
 
@@ -1451,9 +1770,12 @@ void TextEditor::onCursorPositionChanged()
     fontChanged(fmt.font());
 
     // Update action states for text formatting
-    if (m_boldAction) m_boldAction->setChecked(fmt.fontWeight() == QFont::Bold);
-    if (m_italicAction) m_italicAction->setChecked(fmt.fontItalic());
-    if (m_underlineAction) m_underlineAction->setChecked(fmt.fontUnderline());
+    if (m_boldAction) { m_boldAction->setChecked(fmt.fontWeight() == QFont::Bold);
+}
+    if (m_italicAction) { m_italicAction->setChecked(fmt.fontItalic());
+}
+    if (m_underlineAction) { m_underlineAction->setChecked(fmt.fontUnderline());
+}
     
     // Update list button states based on current list
     QTextCursor cursor = m_editor->textCursor();
@@ -1471,37 +1793,32 @@ void TextEditor::onCursorPositionChanged()
         }
     } else {
         // Not in a list - uncheck both list buttons
-        if (m_bulletListAction) m_bulletListAction->setChecked(false);
-        if (m_numberedListAction) m_numberedListAction->setChecked(false);
+        if (m_bulletListAction) { m_bulletListAction->setChecked(false);
+}
+        if (m_numberedListAction) { m_numberedListAction->setChecked(false);
+}
     }
     
 #ifdef Q_OS_ANDROID
-    // Refresh toolbar on Android to ensure proper visibility
-    refreshToolbar();
-    // Update overscroll indicators
+    // (Removed heavy refreshToolbar() call here that caused severe tap/keystroke lag)
+    // Update overscroll indicators in case action states changed their widths
     updateOverscrollIndicators();
     
-    // Additional refresh for combo boxes
-    if (m_fontCombo) {
-        m_fontCombo->setVisible(true);
-        m_fontCombo->setEnabled(true);
-    }
-    if (m_sizeCombo) {
-        m_sizeCombo->setVisible(true);
-        m_sizeCombo->setEnabled(true);
-    }
+    // (Removed heavy combo-box setVisible re-triggering that caused layout invalidations)
 #endif
 }
 
 void TextEditor::undo()
 {
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
     m_editor->undo();
 }
 
 void TextEditor::mergeFormatOnWordOrSelection(const QTextCharFormat &format)
 {
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
     QTextCursor cursor = m_editor->textCursor();
     if (!cursor.hasSelection()) {
         cursor.select(QTextCursor::WordUnderCursor);
@@ -1563,15 +1880,18 @@ void TextEditor::fontChanged(const QFont &f)
 #ifdef Q_OS_ANDROID
     // Additional refresh for Android
     QTimer::singleShot(10, this, [this]() {
-        if (m_fontCombo) m_fontCombo->update();
-        if (m_sizeCombo) m_sizeCombo->update();
+        if (m_fontCombo) { m_fontCombo->update();
+}
+        if (m_sizeCombo) { m_sizeCombo->update();
+}
     });
 #endif
 }
 
 void TextEditor::applyFormat(QTextListFormat::Style style)
 {
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
     
     QTextCursor cursor = m_editor->textCursor();
     cursor.beginEditBlock();
@@ -1654,13 +1974,6 @@ void TextEditor::refreshToolbar()
     if (m_toolbar) {
         m_toolbar->setVisible(true);
         m_toolbar->setEnabled(true);
-        
-        // Refresh the toolbar layout
-        m_toolbar->update();
-        m_toolbar->repaint();
-        
-        // Ensure proper sizing
-        m_toolbar->adjustSize();
     }
     
     // Ensure font combo box is visible and properly configured
@@ -1689,31 +2002,19 @@ void TextEditor::refreshToolbar()
         m_sizeCombo->blockSignals(false);
     }
     
-    // Update the layout
-    if (layout()) {
-        layout()->update();
-        layout()->activate();
-    }
-    
+    // (Removed dangerous forced layout()->activate() here which triggered infinite resize loops)
     // Update overscroll indicators
     updateOverscrollIndicators();
     
     updateToolbarContentWidth();
-
-    // Additional refresh for Android after a short delay
-    QTimer::singleShot(50, this, [this]() {
-        if (m_toolbar) m_toolbar->update();
-        if (m_fontCombo) m_fontCombo->update();
-        if (m_sizeCombo) m_sizeCombo->update();
-        updateToolbarContentWidth();
-        updateOverscrollIndicators();
-    });
+    // (Removed recursive QTimer forced repaints to allow for native Qt modular redraws)
 }
 #endif
 
 void TextEditor::newDocument()
 {
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
     m_editor->clear();
     m_filePath.clear();
     m_modified = false;
@@ -1722,7 +2023,8 @@ void TextEditor::newDocument()
 
 void TextEditor::openDocument()
 {
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
     QString fileName = QFileDialog::getOpenFileName(this,
         "Open Document", m_filePath, "HTML files (*.html);;Text files (*.txt);;All files (*.*)");
     if (!fileName.isEmpty()) {
@@ -1738,7 +2040,8 @@ void TextEditor::openDocument()
 
 void TextEditor::saveDocument()
 {
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
     if (m_filePath.isEmpty()) {
         saveDocumentAs();
     } else {
@@ -1755,7 +2058,8 @@ void TextEditor::saveDocument()
 
 bool TextEditor::saveDocumentAs()
 {
-    if (!m_editor) return false;
+    if (!m_editor) { return false;
+}
     
     // Use default save directory if set, otherwise use Documents directory
     QString defaultDir = m_defaultSaveDirectory;
@@ -1787,35 +2091,41 @@ bool TextEditor::saveDocumentAs()
 
 void TextEditor::cut()
 {
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
     m_editor->cut();
 }
 
 void TextEditor::copy()
 {
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
     m_editor->copy();
 }
 
 void TextEditor::paste()
 {
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
     m_editor->paste();
 }
 
 void TextEditor::redo()
 {
-    if (!m_editor) return;
+    if (!m_editor) { return;
+}
     m_editor->redo();
 }
 
 void TextEditor::updateOverscrollIndicators()
 {
 #ifdef Q_OS_ANDROID
-    if (!m_toolbarArea || !m_toolbar || !m_overscrollLeftWidget || !m_overscrollRightWidget) return;
+    if (!m_toolbarArea || !m_toolbar || !m_overscrollLeftWidget || !m_overscrollRightWidget) { return;
+}
 
     QScrollBar* hbar = m_toolbarArea->horizontalScrollBar();
-    if (!hbar) return;
+    if (!hbar) { return;
+}
 
     // Determine overflow and scrollability using the scroll bar
     bool hasOverflow = (hbar->maximum() > hbar->minimum());
@@ -1827,7 +2137,7 @@ void TextEditor::updateOverscrollIndicators()
 
     if (canScrollLeft) {
         int leftX = areaPos.x() + 4;
-        int leftY = areaPos.y() + (viewportRect.height() - m_overscrollLeftWidget->height()) / 2;
+        int leftY = areaPos.y() + ((viewportRect.height() - m_overscrollLeftWidget->height()) / 2);
         m_overscrollLeftWidget->move(leftX, leftY);
         m_overscrollLeftWidget->raise();
         m_overscrollLeftWidget->setEnabled(true);
@@ -1839,7 +2149,7 @@ void TextEditor::updateOverscrollIndicators()
 
     if (canScrollRight) {
         int rightX = areaPos.x() + viewportRect.width() - m_overscrollRightWidget->width() - 4;
-        int rightY = areaPos.y() + (viewportRect.height() - m_overscrollRightWidget->height()) / 2;
+        int rightY = areaPos.y() + ((viewportRect.height() - m_overscrollRightWidget->height()) / 2);
         m_overscrollRightWidget->move(rightX, rightY);
         m_overscrollRightWidget->raise();
         m_overscrollRightWidget->setEnabled(true);
@@ -1849,17 +2159,15 @@ void TextEditor::updateOverscrollIndicators()
         m_overscrollRightWidget->hide();
     }
 
-    // Ensure indicators refresh after layout settles
-    if (hasOverflow) {
-        QTimer::singleShot(100, this, [this]() { updateOverscrollIndicators(); });
-    }
+    // (Removed infinite recursive QTimer loop here that pegged the CPU if there was overflow)
 #endif
 }
 
 #ifdef Q_OS_ANDROID
 void TextEditor::scrollToolbarLeft()
 {
-    if (!m_toolbarArea) return;
+    if (!m_toolbarArea) { return;
+}
 
     if (QScrollBar *bar = m_toolbarArea->horizontalScrollBar()) {
         const int viewportWidth = m_toolbarArea->viewport() ? m_toolbarArea->viewport()->width() : 0;
@@ -1871,7 +2179,8 @@ void TextEditor::scrollToolbarLeft()
 
 void TextEditor::scrollToolbarRight()
 {
-    if (!m_toolbarArea) return;
+    if (!m_toolbarArea) { return;
+}
 
     if (QScrollBar *bar = m_toolbarArea->horizontalScrollBar()) {
         const int viewportWidth = m_toolbarArea->viewport() ? m_toolbarArea->viewport()->width() : 0;
@@ -1890,6 +2199,34 @@ void TextEditor::updateEditorGeometry()
         if (m_editor->layout()) {
             m_editor->layout()->activate();
         }
+    }
+}
+#endif
+
+#ifdef Q_OS_ANDROID
+void TextEditor::onLongPressDetected()
+{
+    if (!m_editor) { return;
+}
+
+    QPointF pos = m_longPressStartPos;
+    QPoint editorPoint = m_editor->viewport()->mapFrom(this, pos.toPoint());
+
+    if (!m_editor->viewport()->rect().contains(editorPoint)) { return;
+}
+
+    QTextCursor cursor = m_editor->cursorForPosition(editorPoint);
+    QTextCharFormat fmt = cursor.charFormat();
+    QString href = fmt.anchorHref();
+
+    if (href.isEmpty() && cursor.position() > 0) {
+        cursor.setPosition(cursor.position() - 1);
+        fmt = cursor.charFormat();
+        href = fmt.anchorHref();
+    }
+
+    if (!href.isEmpty()) {
+        QDesktopServices::openUrl(QUrl::fromUserInput(href));
     }
 }
 #endif

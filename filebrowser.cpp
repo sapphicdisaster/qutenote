@@ -500,7 +500,7 @@ void FileBrowser::populateTree()
         if (entry.isDir()) {
             item->setText(0, displayNameForEntry(entry));
             QDir d(entry.absoluteFilePath());
-            const bool empty = d.entryInfoList(QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot).isEmpty();
+            const bool empty = d.isEmpty();
             if (empty) {
                 item->setIcon(0, QIcon(":/resources/icons/custom/folder.svg"));
             } else {
@@ -546,8 +546,12 @@ void FileBrowser::setRootDirectory(const QString &path)
         m_treeWidget->setRootDirectory(path);
     }
     
-    populateTree();
-    emit directoryChanged(m_currentDirectory);
+    // Defer the expensive populateTree call so that the main application window
+    // can paint immediately on startup rather than waiting for disk IO.
+    QTimer::singleShot(0, this, [this]() {
+        populateTree();
+        emit directoryChanged(m_currentDirectory);
+    });
 }
 
 void FileBrowser::captureExpandedPaths()
@@ -837,7 +841,9 @@ QStringList FileBrowser::ensureOrderingMetadata(const QString &directoryPath, co
     finalOrder.append(leftovers);
 
     if (finalOrder != existingOrder) {
-        saveOrderingMetadata(normalizedDir, finalOrder);
+        QTimer::singleShot(0, this, [this, normalizedDir, finalOrder]() {
+            saveOrderingMetadata(normalizedDir, finalOrder);
+        });
     }
 
     return finalOrder;

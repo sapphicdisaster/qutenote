@@ -41,7 +41,7 @@ MainView::MainView(QWidget *parent)
     : QWidget(parent)
     , m_rootDirectory(QSettings().value("notesDirectory", QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/QuteNote").toString())
     , m_currentFile(QString())
-    , m_sidebarVisible(QSettings().value("showSidebarByDefault", true).toBool())
+    , m_sidebarVisible(true)
     , m_sidebarWidth(250) // Default sidebar width
     , m_titleBarWidget(nullptr)
     , m_sidebar(nullptr)
@@ -57,12 +57,6 @@ MainView::MainView(QWidget *parent)
 #ifndef Q_OS_ANDROID
     setWindowTitle("QuteNote");
     setMinimumSize(360, 600);
-#else
-    // On Android, set the height to available screen geometry to avoid being cut off by system UI
-    QRect avail = QGuiApplication::primaryScreen()->availableGeometry();
-    setGeometry(avail);
-    setMinimumSize(avail.width(), avail.height());
-    setMaximumSize(avail.width(), avail.height());
 #endif
 
     // Enable touch events and gestures
@@ -80,14 +74,6 @@ MainView::MainView(QWidget *parent)
     setupUI();
     setupMenus();
     setupToolbar();
-    
-    // Apply initial sidebar visibility from settings
-    if (m_toggleSidebarBtn) {
-        m_toggleSidebarBtn->setChecked(m_sidebarVisible);
-    }
-    if (m_sidebar) {
-        m_sidebar->setVisible(m_sidebarVisible);
-    }
 
     // Connect signals
     if (m_fileBrowser) {
@@ -230,6 +216,40 @@ void MainView::resizeEvent(QResizeEvent *event)
 {
     // Let the layout system handle the resizing
     QWidget::resizeEvent(event);
+
+    // Detect Orientation changes (width vs height)
+    int width = event->size().width();
+    int height = event->size().height();
+    bool isPortraitNow = (width < height);
+
+    // Only process state transition if orientation actually changed
+    if (isPortraitNow != m_isPortrait) {
+        m_isPortrait = isPortraitNow;
+
+        // Reset user manual-toggle tracker upon rotation change to give
+        // the system control until they touch it again in this new state.
+        m_userToggledSidebar = false;
+
+        QSettings settings("QuteNote", "QuteNote");
+        bool autoHideEnabled = settings.value("autoHideSidebar", true).toBool();
+
+        if (autoHideEnabled) {
+            if (m_isPortrait) {
+                // Entering Portrait: Save previous state, enforce hidden sidebar
+                m_wasSidebarVisibleBeforePortrait = m_sidebarVisible;
+                if (m_sidebarVisible) {
+                    toggleSidebar(false);
+                    m_userToggledSidebar = false; // System generated this toggle
+                }
+            } else {
+                // Entering Landscape: Restore if it was visible before portrait
+                if (m_wasSidebarVisibleBeforePortrait && !m_sidebarVisible) {
+                    toggleSidebar(true);
+                    m_userToggledSidebar = false; // System generated this toggle
+                }
+            }
+        }
+    }
     
     // Simple update for proper resizing - Qt's layout system should handle most of this
     if (m_textEditor) {
@@ -244,6 +264,10 @@ void MainView::resizeEvent(QResizeEvent *event)
     if (layout()) {
         layout()->activate();
     }
+    
+    qDebug() << "[LayoutDebug] MainView target size:" << size();
+    if (m_splitter) qDebug() << "[LayoutDebug] Splitter size:" << m_splitter->size();
+    if (window()) qDebug() << "[LayoutDebug] Window size:" << window()->size();
 }
 
 void MainView::closeEvent(QCloseEvent *event)
@@ -497,8 +521,7 @@ void MainView::setupToolbar()
 {
     m_toolbar = new QToolBar(this);
     m_toolbar->setMovable(false);
-    Theme theme = ThemeManager::instance()->currentTheme();
-    m_toolbar->setIconSize(QSize(theme.metrics.iconSize, theme.metrics.iconSize));
+    m_toolbar->setIconSize(QSize(32, 32));  // Match TextEditor toolbar size
     // Make toolbar content-width driven so the scroll area can show overflow
     m_toolbar->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
     // Initial toolbar setup — visual styling is applied centrally via ThemeManager
@@ -519,10 +542,8 @@ void MainView::setupToolbar()
     m_toggleSidebarBtn->setChecked(true);
     m_toggleSidebarBtn->setIcon(sidebarIcon);
     m_toggleSidebarBtn->setToolTip("Toggle Sidebar");
-    m_toggleSidebarBtn->setIconSize(QSize(theme.metrics.iconSize, theme.metrics.iconSize));
-    // Make toggle narrower: icon width + small padding, but full touchTarget height
-    int toggleWidth = theme.metrics.iconSize + 12; // icon + 6px padding each side
-    m_toggleSidebarBtn->setFixedSize(toggleWidth, theme.metrics.touchTarget);
+    m_toggleSidebarBtn->setIconSize(QSize(32, 32));
+    m_toggleSidebarBtn->setFixedSize(44, 44); // Slightly larger to fit icon
     // Do not add toggle to the scrollable toolbar; it will be placed in the left fixed area
     // Style the toggle to match the titlebar primary color
     // Apply initial and theme-updated toggle styling via member function
@@ -535,13 +556,13 @@ void MainView::setupToolbar()
     m_toolbar->addWidget(separator1);
     
     // Set custom cute icons for actions with fallback to standard icons
-    QIcon newIcon(":/resources/icons/custom/file-plus-2.svg");
+    QIcon newIcon(":/resources/icons/custom/new-file.svg");
     if (newIcon.isNull()) {
         newIcon = style()->standardIcon(QStyle::SP_FileIcon);
     }
     m_newAction->setIcon(newIcon);
     
-    QIcon openIcon(":/resources/icons/custom/folder.svg");
+    QIcon openIcon(":/resources/icons/custom/file.svg");
     if (openIcon.isNull()) {
         openIcon = style()->standardIcon(QStyle::SP_DialogOpenButton);
     }
@@ -685,14 +706,11 @@ void MainView::setupToolbar()
 
     // Create an affixed settings button on the far right
     if (!m_settingsBtn && m_settingsAction) {
-        Theme theme = ThemeManager::instance()->currentTheme();
         m_settingsBtn = new QToolButton(this);
         m_settingsBtn->setDefaultAction(m_settingsAction);
         m_settingsBtn->setAutoRaise(true);
         m_settingsBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
-        // Make settings button narrower to give titlebar more room
-        int settingsWidth = theme.metrics.iconSize + 12; // icon + 6px padding each side
-        m_settingsBtn->setFixedSize(settingsWidth, theme.metrics.touchTarget);
+        m_settingsBtn->setFixedSize(44, 44);
         // Apply initial and theme-updated settings button styling via member function
         applySettingsStyle();
         connect(ThemeManager::instance(), &ThemeManager::themeChanged, this, &MainView::applySettingsStyle);
@@ -752,8 +770,8 @@ void MainView::setupToolbar()
     QHBoxLayout *leftLayout = new QHBoxLayout(m_toolbarLeftFixed);
     leftLayout->setContentsMargins(0, 0, 0, 0);
     leftLayout->setSpacing(4);
-    // Align children to vertical center so toggle and title line up with toolbar
-    leftLayout->setAlignment(Qt::AlignVCenter);
+    // Align children to the top so toggle and title line up with toolbar
+    leftLayout->setAlignment(Qt::AlignTop);
     leftLayout->addWidget(m_toggleSidebarBtn);
     // Title widget will be inserted into m_toolbarLeftFixed by setTitleWidget
     rowLayout->addWidget(m_toolbarLeftFixed);
@@ -769,9 +787,9 @@ void MainView::setupToolbar()
     }
     rowLayout->addWidget(m_toolbarArea, 1);
 
-    // Fixed settings button on the right — align to vertical center so it lines up with toolbar
+    // Fixed settings button on the right — align to top so it lines up with toolbar
     if (m_settingsBtn) {
-        rowLayout->addWidget(m_settingsBtn, 0, Qt::AlignVCenter);
+        rowLayout->addWidget(m_settingsBtn, 0, Qt::AlignTop);
     }
 
     // Insert combined toolbar row at the top of the main layout
@@ -800,9 +818,12 @@ void MainView::setTitleWidget(QWidget *widget)
     // Insert widget into left fixed area (next to toggle)
     widget->setParent(m_toolbarLeftFixed ? m_toolbarLeftFixed : m_toolbarRow);
     widget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-    // Use touchTarget for height so it scales with zoom properly
-    Theme theme = ThemeManager::instance()->currentTheme();
-    widget->setFixedHeight(theme.metrics.touchTarget);
+    // Give a little extra vertical room on phone (Android) to avoid cramped titlebar
+    int extraPhonePad = 0;
+#ifdef Q_OS_ANDROID
+    extraPhonePad = 8;
+#endif
+    widget->setFixedHeight(m_toolbar->iconSize().height() + 8 + extraPhonePad);
     // Ensure the title widget is wide enough to show at least ~10 characters on narrow screens
     // but do not override an explicit min/max width the widget may have already set
     // (for example, `TitleBarWidget` sets a width based on the theme touch target).
@@ -821,10 +842,9 @@ void MainView::setTitleWidget(QWidget *widget)
     }
 
     // Constrain the left-fixed area so it doesn't expand to fill the toolbar row.
-    // Give more room to accommodate the larger titlebar widget.
     if (m_toolbarLeftFixed && m_toggleSidebarBtn) {
         int toggleW = m_toggleSidebarBtn->width() ? m_toggleSidebarBtn->width() : m_toggleSidebarBtn->sizeHint().width();
-        int leftSpacing = 20; // increased spacing to prevent titlebar right edge clipping
+        int leftSpacing = 8; // small padding
         int leftMax = toggleW + widget->maximumWidth() + leftSpacing;
         m_toolbarLeftFixed->setMaximumWidth(leftMax);
         m_toolbarLeftFixed->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
@@ -885,6 +905,10 @@ void MainView::toggleSidebar(bool visible)
     if (m_sidebarVisible == visible) {
         return; // No change needed
     }
+    
+    // Any change via this function (especially from UI buttons/actions) sets user toggle.
+    // The resize event temporarily resets it when acting on behalf of the system.
+    m_userToggledSidebar = true;
     m_sidebarVisible = visible;
     
     updateStatusBar(visible ? "Showing sidebar..." : "Hiding sidebar...", 1000);
@@ -976,25 +1000,6 @@ void MainView::applyToolbarStyle()
 {
     if (!m_toolbar) return;
     Theme theme = ThemeManager::instance()->currentTheme();
-
-    // Update toolbar icon size from theme
-    m_toolbar->setIconSize(QSize(theme.metrics.iconSize, theme.metrics.iconSize));
-    
-    // Update toggle button sizing
-    if (m_toggleSidebarBtn) {
-        m_toggleSidebarBtn->setIconSize(QSize(theme.metrics.iconSize, theme.metrics.iconSize));
-        // Make toggle narrower: icon width + small padding, but full touchTarget height
-        int toggleWidth = theme.metrics.iconSize + 12; // icon + 6px padding each side
-        m_toggleSidebarBtn->setFixedSize(toggleWidth, theme.metrics.touchTarget);
-    }
-    
-    // Update settings button sizing - make narrower to give titlebar more room
-    if (m_settingsBtn) {
-        m_settingsBtn->setIconSize(QSize(theme.metrics.iconSize, theme.metrics.iconSize));
-        // Make settings button narrower: icon width + small padding, but full touchTarget height
-        int settingsWidth = theme.metrics.iconSize + 12; // icon + 6px padding each side
-        m_settingsBtn->setFixedSize(settingsWidth, theme.metrics.touchTarget);
-    }
 
     // Compute a toolbar height that accommodates icons and the touch target metric
     const int toolBtnHeight = m_toolbar->iconSize().height();
@@ -1339,21 +1344,13 @@ void MainView::showSettings()
 void MainView::onFileSelected(const QString &filePath)
 {
     QFileInfo info(filePath);
-    const QString resolvedPath = info.absoluteFilePath();
-
-    if (resolvedPath.isEmpty()) {
-        updateStatusBar(tr("Unable to open file: missing path"), 4000);
-        return;
-    }
-
-    info.setFile(resolvedPath);
 
     // Skip directories and divider files
-    if (info.isDir() || info.suffix().compare("divider", Qt::CaseInsensitive) == 0) {
+    if (info.isDir() || info.suffix() == "divider") {
         return;
     }
 
-    loadFile(resolvedPath);
+    loadFile(filePath);
 }
 
 void MainView::onFileSaved(const QString &filePath)

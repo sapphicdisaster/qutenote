@@ -90,3 +90,6 @@ android/build.gradle.in
 android/build.gradle.in
 android/build.gradle.in
 android/build.gradle.in
+android/build.gradle.in
+apk-deploy.ps1
+git-deploy.ps1

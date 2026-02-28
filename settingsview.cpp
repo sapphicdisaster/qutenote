@@ -166,12 +166,14 @@ void SettingsView::setupGeneralTab()
 
     m_autoSaveCheck = QuteNote::makeOwned<QCheckBox>("Enable Auto-save", m_generalTab.get());
     m_showSidebarCheck = QuteNote::makeOwned<QCheckBox>("Show Sidebar by Default", m_generalTab.get());
+    m_autoHideSidebarCheck = QuteNote::makeOwned<QCheckBox>("Auto-hide Sidebar in Portrait", m_generalTab.get());
 
     auto formLayout = QuteNote::makeOwned<QFormLayout>(m_generalTab.get());
     formLayout->addRow(m_notesDirLabel.get(), notesDirWidget);
     formLayout->addRow(m_languageLabel.get(), m_languageCombo.get());
     formLayout->addRow(m_autoSaveCheck.get());
     formLayout->addRow(m_showSidebarCheck.get());
+    formLayout->addRow(m_autoHideSidebarCheck.get());
     formLayout->addItem(new QSpacerItem(0, 0, QSizePolicy::Minimum, QSizePolicy::Expanding));
     m_generalTab->setLayout(formLayout.get());
 
@@ -183,6 +185,9 @@ void SettingsView::setupGeneralTab()
     });
     connect(m_showSidebarCheck.get(), &QCheckBox::toggled, this, [this](bool checked) {
         m_settings->setValue("showSidebarByDefault", checked);
+    });
+    connect(m_autoHideSidebarCheck.get(), &QCheckBox::toggled, this, [this](bool checked) {
+        m_settings->setValue("autoHideSidebar", checked);
     });
 
     m_tabWidget->addTab(m_generalTab.get(), tr("General"));
@@ -255,7 +260,7 @@ void SettingsView::setupAboutTab()
     m_appNameLabel->setFont(font);
     m_appNameLabel->setAlignment(Qt::AlignHCenter | Qt::AlignVCenter);
 
-    m_versionLabel = QuteNote::makeOwned<QLabel>("Version 1.0.0");
+    m_versionLabel = QuteNote::makeOwned<QLabel>("Version 1.0.1");
     m_versionLabel->setAlignment(Qt::AlignHCenter | Qt::AlignVCenter);
 
     // Info group
@@ -312,6 +317,7 @@ void SettingsView::loadSettings()
     // Load auto-save and sidebar settings
     m_autoSaveCheck->setChecked(m_settings->value("autoSave", true).toBool());
     m_showSidebarCheck->setChecked(m_settings->value("showSidebarByDefault", true).toBool());
+    m_autoHideSidebarCheck->setChecked(m_settings->value("autoHideSidebar", true).toBool());
 }
 
 void SettingsView::saveSettings()

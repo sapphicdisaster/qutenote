@@ -99,7 +99,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 
 void MainWindow::keyReleaseEvent(QKeyEvent *event)
 {
-    // If the text editor has focus, let it handle all key presses except the back button.
+    // If the text editor has focus, let it handle keys except back/escape
     if (m_mainView && m_mainView->textEditor() && m_mainView->textEditor()->hasFocus()) {
         if (event->key() != Qt::Key_Back && event->key() != Qt::Key_Escape) {
             QMainWindow::keyReleaseEvent(event);
@@ -107,107 +107,40 @@ void MainWindow::keyReleaseEvent(QKeyEvent *event)
         }
     }
 
-    // Handle Android back button (Qt::Key_Back)
+    // Handle Android back button or Escape
     if (event->key() == Qt::Key_Back || event->key() == Qt::Key_Escape) {
-        // Check if we're currently in the settings view
+        // If we're in the settings view, go back to the main view
         if (m_stackedWidget && m_stackedWidget->currentWidget() == m_settingsView) {
-            // Navigate back to main view
             showMainView();
             event->accept();
             return;
         }
-        
-        // Check if main view exists and has a file browser
-        if (m_mainView) {
-            // Get the file browser from main view
-            FileBrowser* fileBrowser = m_mainView->fileBrowser();
-            
-            // If file browser exists, check if sidebar is visible
-            if (fileBrowser) {
-                // Get sidebar toggle button
-                QToolButton* toggleBtn = m_mainView->sidebarToggleButton();
-                
-                // If sidebar is visible, hide it instead of exiting
-                if (toggleBtn && toggleBtn->isChecked()) {
-                    // Toggle sidebar to hide it
-                    m_mainView->toggleSidebar(false);
-                    toggleBtn->setChecked(false);
-                    event->accept();
-                    return;
-                }
-            }
-        }
-        
-        // If we're already in the main view and sidebar is hidden, show exit confirmation
-        m_backPressCount++;
-        
-        if (m_backPressCount >= 2) {
-            // Check if there are unsaved changes
-            if (m_mainView && m_mainView->textEditor() && m_mainView->textEditor()->isModified()) {
-                QMessageBox::StandardButton reply = QMessageBox::question(
-                    this,
-                    tr("Unsaved Changes"),
-                    tr("You have unsaved changes. Do you want to save before exiting?"),
-                    QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel
-                );
-                
-                if (reply == QMessageBox::Save) {
-                    // Save the document
-                    m_mainView->saveFile();
-                    // Continue to exit confirmation
-                } else if (reply == QMessageBox::Cancel) {
-                    // User cancelled, reset counter and don't exit
-                    m_backPressCount = 0;
-                    event->accept();
-                    return;
-                }
-                // If Discard, continue to exit confirmation
-            }
-            
-            // Show exit confirmation dialog
-            QMessageBox::StandardButton reply = QMessageBox::question(
-                this, 
-                tr("Exit QuteNote"), 
-                tr("Are you sure you want to exit QuteNote?"),
-                QMessageBox::Yes | QMessageBox::No
-            );
-            
-            if (reply == QMessageBox::Yes) {
-                // On Android, properly clean up touch interactions before quitting
-#ifdef Q_OS_ANDROID
-                // Process any pending touch events
-                QCoreApplication::processEvents();
-                
-                // Give some time for touch interactions to settle
-                // Use QApplication instance directly to avoid capturing 'this'
-                QTimer::singleShot(100, qApp, &QApplication::quit);
-#else
-                QApplication::quit();
-#endif
-            } else {
-                m_backPressCount = 0; // Reset counter if user cancels
-            }
-        } else {
-            // Show a status bar message for the first back press
+
+        // Double-press to exit: first press shows a prompt
+        if (m_backPressCount == 0) {
             if (m_statusBar) {
                 m_statusBar->showMessage(tr("Press back again to exit"), 2000);
             }
-            
-            // Reset the counter after a short delay
-            // Store a QPointer to safely check if MainWindow still exists
+            m_backPressCount = 1;
             QPointer<MainWindow> self(this);
             QTimer::singleShot(2000, this, [self]() {
-                if (self) {
-                    self->m_backPressCount = 0;
-                }
+                if (self) self->m_backPressCount = 0;
             });
+            event->accept();
+            return;
         }
-        
+
+        // Second press: quit the application
+#ifdef Q_OS_ANDROID
+        QTimer::singleShot(0, qApp, &QApplication::quit);
+#else
+        QApplication::quit();
+#endif
         event->accept();
         return;
     }
-    
-    // For other keys, use default behavior
+
+    // Default behavior for other keys
     QMainWindow::keyReleaseEvent(event);
 }
 
@@ -282,9 +215,9 @@ void MainWindow::setupUI()
     // Set window properties
 #ifndef Q_OS_ANDROID
     setWindowTitle("QuteNote");
-#endif
     setMinimumSize(800, 600);
     resize(1200, 800);
+#endif
 
     // Create status bar
     m_statusBar = statusBar();

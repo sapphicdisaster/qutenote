@@ -79,6 +79,7 @@ protected:
     QuteNote::OwnedPtr<QComboBox> m_languageCombo;
     QuteNote::OwnedPtr<QCheckBox> m_autoSaveCheck;
     QuteNote::OwnedPtr<QCheckBox> m_showSidebarCheck;
+    QuteNote::OwnedPtr<QCheckBox> m_autoHideSidebarCheck;
 
     // Appearance settings
     QuteNote::OwnedPtr<QWidget> m_appearanceTab;

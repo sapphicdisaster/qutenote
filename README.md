@@ -8,9 +8,10 @@ it's forever free but you can support development with a donation.
 
 ## Features
 
-- **Rich Text Editing**: Format your notes with bold, italic, underline, colors, lists, links, and images
+- **Rich Text Editing**: Format your notes with bold, italic, underline, colors, lists, links, and images (Camera support on Android)
+- **Image Management**: Resize and align images with an intuitive touch-friendly popup dialog
 - **Touch-Friendly**: Built from the ground up for touch devices with large, comfortable buttons
-- **Cross-Platform**: Runs on Windows, Linux, macOS, and Android (Qt 6.10+)
+- **Cross-Platform**: built for Android (Qt 6.10+)
 - **Theme System**: Choose between Pink and Purple themes with customizable zoom levels (100%/150%/200%)
 - **File Browser**: Navigate your notes with an intuitive file tree
 - **Auto-Backup**: Automatic backup system to keep your notes safe
@@ -33,21 +34,40 @@ cmake ..
 cmake --build .
 ```
 
-### Android Build
+### Linux Build
 
-Use Qt Creator with the Android kit configured, or:
-
-```bash
-cmake -B build-android -DCMAKE_TOOLCHAIN_FILE=/path/to/qt/android_arm64_v8a/lib/cmake/Qt6/qt.toolchain.cmake
-cmake --build build-android
-```
-
-For the exact command used in this project:
+On Ubuntu/Debian, install the required Qt 6 dependencies first:
 
 ```bash
-"C:\Qt\Tools\CMake_64\bin\cmake.exe" --build C:/Users/skye/Documents/Workspace/QuteNote/build/Qt_6_10_0_for_Android_arm64_v8a-Debug --target all
+sudo apt update
+sudo apt install build-essential cmake qt6-base-dev qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools
 ```
 
+Then build as usual:
+
+```bash
+mkdir build
+cd build
+cmake ..
+cmake --build .
+```
+
+
+### Manual Windows Build (CLI)
+
+If Qt Creator is unavailable or you prefer not to use it, you can install your desired kits with the maintenance tool, then you can build manually using `qt-cmake` and Ninja.
+
+1. **Configure**:
+   Adjust paths for your specific user and Qt version (e.g., `6.10.1`).
+
+   ```powershell
+   & "C:\Qt\6.10.1\android_arm64_v8a\bin\qt-cmake.bat" -S . -B build/Qt_6_10_1_for_Android_arm64_v8a-Debug -G Ninja -DCMAKE_MAKE_PROGRAM="C:\Qt\Tools\Ninja\ninja.exe" -DANDROID_SDK_ROOT="C:\Users\skye\AppData\Local\Android\Sdk" -DANDROID_NDK_ROOT="C:\Users\skye\AppData\Local\Android\Sdk\ndk\27.2.12479018" -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-35
+   ```
+
+2. **Build**:
+   ```powershell
+   & "C:\Qt\Tools\CMake_64\bin\cmake.exe" --build build/Qt_6_10_1_for_Android_arm64_v8a-Debug --target all
+   ```
 ## Architecture
 
 QuteNote is built with a modular architecture:

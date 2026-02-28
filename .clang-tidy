@@ -1,0 +1,126 @@
+# Clang-tidy configuration for QuteNote Qt project
+# Focus on Qt best practices, performance, and modern C++
+
+---
+Checks: >
+  modernize-*,
+  performance-*,
+  readability-*,
+  bugprone-*,
+  cppcoreguidelines-*,
+  misc-*,
+  clang-analyzer-*,
+  portability-*,
+  -modernize-use-trailing-return-type,
+  -modernize-use-auto,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -readability-else-after-return,
+  -cppcoreguidelines-avoid-goto,
+  -misc-const-correctness,
+  -readability-isolate-declaration,
+  -cppcoreguidelines-init-variables,
+  -readability-redundant-access-specifiers,
+  -readiness-braces-around-statements,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-owning-memory,
+  -modernize-raw-string-literal,
+  -modernize-pass-by-value,
+  -modernize-loop-convert,
+  -readability-qualified-auto,
+  -readability-implicit-bool-conversion,
+  -readability-named-parameter,
+  -readability-simplify-boolean-expr,
+  -readability-container-size-empty,
+  -readability-delete-null-pointer,
+  -readability-redundant-control-flow,
+  -readability-redundant-declaration,
+  -readability-redundant-function-ptr-dereference,
+  -readability-redundant-member-init,
+  -readability-redundant-preprocessor,
+  -readability-redundant-string-cstr,
+  -readability-redundant-string-init,
+  -readability-static-accessed-through-instance,
+  -readability-string-compare,
+  -readability-unique-ptr-delete-release,
+  -readability-avoid-const-params-in-decls,
+  -readability-container-contains,
+  -readability-convert-member-functions-to-static,
+  -readability-duplicate-include,
+  -readability-function-cognitive-complexity,
+  -readability-inconsistent-declaration-parameter-name,
+  -readability-make-member-function-const,
+  -readability-misleading-indentation,
+  -readability-misplaced-array-index,
+  -readability-non-const-parameter,
+  -readability-redundant-access-specifiers,
+  -readability-suspicious-call-argument,
+  -readability-unnecessary-value-param,
+  -readability-use-anyofallof,
+  -readability-use-std-min-max,
+  -readability-avoid-unconditional-pre-if,
+  -readability-avoid-return-with-void-value,
+  -readiness-avoid-unconditional-pre-if,
+  -readiness-avoid-return-with-void-value,
+  -readiness-avoid-unconditional-pre-if,
+  -readiness-avoid-return-with-void-value,
+  -readiness-avoid-unconditional-pre-if,
+  -readiness-avoid-return-with-void-value
+
+# Qt-specific checks
+CheckOptions:
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.FunctionCase
+    value: camelBack
+  - key: readability-identifier-naming.VariableCase
+    value: camelBack
+  - key: readability-identifier-naming.PrivateMemberPrefix
+    value: m_
+  - key: readability-identifier-naming.ProtectedMemberPrefix
+    value: m_
+  - key: readability-identifier-naming.ConstantCase
+    value: camelBack
+  - key: readability-identifier-naming.EnumConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: camelBack
+  - key: readability-identifier-naming.LocalConstantCase
+    value: camelBack
+  - key: readability-identifier-naming.StaticConstantCase
+    value: camelBack
+  - key: readability-identifier-naming.MemberCase
+    value: camelBack
+  - key: readability-identifier-naming.ParameterCase
+    value: camelBack
+  - key: readability-identifier-naming.TemplateParameterCase
+    value: CamelCase
+  - key: readability-identifier-naming.TemplateTemplateParameterCase
+    value: CamelCase
+  - key: readability-identifier-naming.TypeTemplateParameterCase
+    value: CamelCase
+  - key: readability-identifier-naming.ValueTemplateParameterCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConceptCase
+    value: CamelCase
+  - key: readability-identifier-naming.NamespaceCase
+    value: lower_case
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: camelBack
+
+# Performance-focused settings
+  - key: performance-move-const-arg.CheckTriviallyCopyableMove
+    value: false
+  - key: performance-unnecessary-value-param.IncludeStyle
+    value: All
+
+# Modernize checks that are safe for Qt
+  - key: modernize-use-override.IgnoreOverrideInSpecializations
+    value: true
+
+# C++ Core Guidelines specific to Qt
+  - key: cppcoreguidelines-avoid-magic-numbers.IgnoreAllFloatingPointValues
+    value: true
+  - key: cppcoreguidelines-avoid-magic-numbers.IgnorePowersOf2IntegerValues
+    value: true

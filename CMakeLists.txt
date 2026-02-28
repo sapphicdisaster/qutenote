@@ -4,11 +4,14 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 cmake_minimum_required(VERSION 3.16)
 
-project(QuteNote VERSION 1.0.0 LANGUAGES CXX)
+project(QuteNote VERSION 2.0.0 LANGUAGES CXX)
 
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
+
+# Generate compile_commands.json for linting tools
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Use C++17 for non-Android builds (Android builds will use C++14 via target properties)
 if(NOT ANDROID)
@@ -18,6 +21,8 @@ endif()
 
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Core Gui LinguistTools Concurrent)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Core Gui LinguistTools Concurrent)
+
+qt_policy(SET QTP0002 NEW)
 
 set(TS_FILES QuteNote_en_NZ.ts)
 
@@ -95,6 +100,10 @@ set(PROJECT_SOURCES
         backupsettingspage.h
         colorpickertouchhandler.cpp
         colorpickertouchhandler.h
+        androidcamerahelper.cpp
+        androidcamerahelper.h
+        imagesettingsdialog.cpp
+        imagesettingsdialog.h
         resources.qrc
         ${TS_FILES}
 )
@@ -117,18 +126,13 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
             QT_ANDROID_EXTRA_LIBS "${ANDROID_NDK}/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so"
         )
         
-        # Fix duplicate classes issue
-        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/android/build.gradle.in")
-            file(READ "${CMAKE_CURRENT_SOURCE_DIR}/android/build.gradle.in" BUILD_GRADLE_CONTENT)
-            string(APPEND BUILD_GRADLE_CONTENT "\n\nandroid {\n    packagingOptions {\n        exclude 'META-INF/DEPENDENCIES'\n        exclude 'META-INF/LICENSE'\n        exclude 'META-INF/LICENSE.txt'\n        exclude 'META-INF/license.txt'\n        exclude 'META-INF/NOTICE'\n        exclude 'META-INF/NOTICE.txt'\n        exclude 'META-INF/notice.txt'\n        exclude 'META-INF/*.kotlin_module'\n        pickFirst 'lib/*/libc++_shared.so'\n    }\n}")
-            file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/android/build.gradle.in" "${BUILD_GRADLE_CONTENT}")
-        endif()
+        # Fix duplicate classes issue (packagingOptions are now permanently defined inside android/build.gradle.in itself)
     endif()
 # Define target properties for Android with Qt 6
     set_property(TARGET QuteNote APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR
                  ${CMAKE_CURRENT_SOURCE_DIR}/android)
-    set_property(TARGET QuteNote APPEND PROPERTY QT_ANDROID_VERSION_CODE 3)
-    set_property(TARGET QuteNote APPEND PROPERTY QT_ANDROID_VERSION_NAME "1.0.0")
+    set_property(TARGET QuteNote APPEND PROPERTY QT_ANDROID_VERSION_CODE 4)
+    set_property(TARGET QuteNote APPEND PROPERTY QT_ANDROID_VERSION_NAME "2.0.0")
     set_property(TARGET QuteNote APPEND PROPERTY QT_ANDROID_TARGET_SDK_VERSION 35)
 
     qt_create_translation(QM_FILES ${CMAKE_SOURCE_DIR} ${TS_FILES})

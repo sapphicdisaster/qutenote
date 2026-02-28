@@ -106,6 +106,11 @@ private:
     QString m_currentFile;
     bool m_sidebarVisible;
     int m_sidebarWidth; // Store sidebar width for restoration
+    
+    // Rotation tracking
+    bool m_isPortrait = false;
+    bool m_wasSidebarVisibleBeforePortrait = true;
+    bool m_userToggledSidebar = false; // Tracks if user manually overrode state in current orientation
 
     // UI Components
     QWidget *m_sidebar;

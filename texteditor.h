@@ -12,6 +12,7 @@
 #ifdef Q_OS_ANDROID
 #include <QScroller>
 #include <QScrollerProperties>
+#include <QTimer>
 #endif
 
 // Forward declarations
@@ -26,6 +27,7 @@ class QMenu;
 class QActionGroup;
 class QScrollArea;
 class QScrollBar;
+class ImageSettingsDialog;
 
 class TextEditor : public QuteNote::ComponentBase
 {
@@ -101,9 +103,15 @@ private slots:
     void onNumberedList();
     void onInsertLink();
     void onInsertImage();
+    void onInsertCameraImage();
     void onFontChanged(const QFont &font);
     void onFontSizeChanged(const QString &size);
     void onCursorPositionChanged();
+    void onLongPressDetected();
+    
+    // Image insertion
+    void insertImage(const QString &imagePath);
+    void onImageReceived(const QString &imagePath);
 
 
 private:
@@ -125,7 +133,7 @@ private:
     // Touch event handling
     bool event(QEvent *event) override;
     bool eventFilter(QObject *obj, QEvent *event) override;
-    bool gestureEvent(QGestureEvent *event);
+    static bool gestureEvent(QGestureEvent *event);
     
     // Resize handling
     void resizeEvent(QResizeEvent *event) override;
@@ -169,6 +177,7 @@ private:
 
     QuteNote::OwnedPtr<QAction> m_linkAction;
     QuteNote::OwnedPtr<QAction> m_imageAction;
+    QuteNote::OwnedPtr<QAction> m_cameraAction;
 
     QuteNote::OwnedPtr<QAction> m_undoAction;
     QuteNote::OwnedPtr<QAction> m_redoAction;
@@ -179,6 +188,21 @@ private:
     
     // Touch handling
     QuteNote::OwnedPtr<TextEditorTouchHandler> m_touchHandler;
+#ifdef Q_OS_ANDROID
+    QuteNote::OwnedPtr<QTimer> m_longPressTimer;
+    QPointF m_longPressStartPos;
+    const int m_longPressThresholdMs = 600;
+    const int m_longPressMoveTolerance = 10; // pixels
+#endif
+
+    QPointer<ImageSettingsDialog> m_imageSettingsDialog;
+
+    // Fix for crash: keep explicit track of the image selection for settings dialog
+    QTextCursor m_currentImageCursor;
+
+    // Helper for image interactions
+    void showImageSettings(const QRect &rect, const QTextImageFormat &format);
+    void updateImageSettings(int widthPct, Qt::Alignment alignment);
 };
 
 #endif // TEXTEDITOR_H
