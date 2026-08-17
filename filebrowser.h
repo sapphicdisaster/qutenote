@@ -135,6 +135,7 @@ private:
     void clearBreadcrumbs();
     void updateOverlayButtonPositions();
     void forceUiRefreshAfterDialog();
+    void resetButtonState(QPushButton *btn);
     void updateStatusBar(const QString &message, int timeoutMs = 10000);
     
     // File operations

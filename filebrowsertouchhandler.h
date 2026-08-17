@@ -2,15 +2,11 @@
 #define FILEBROWSERTOUCHHANDLER_H
 
 #include "touchinteractionhandler.h"
-#include <QScroller>
-#include <QTreeWidgetItem>
-#include <QPinchGesture>
-#include <QSwipeGesture>
-#include <QPanGesture>
-#include <QTouchEvent>
+#include "smartpointers.h"
 #include <QTimer>
 
-// Forward declarations to avoid circular dependencies
+class QScroller;
+class QTreeWidgetItem;
 class FileBrowser;
 class TouchInteraction;
 
@@ -21,7 +17,7 @@ public:
     explicit FileBrowserTouchHandler(FileBrowser* fileBrowser);
     ~FileBrowserTouchHandler() override;
     // Access to touch interaction for FileBrowser
-    TouchInteraction* touchInteraction() const { return m_touchInteraction; }
+    TouchInteraction* touchInteraction() const { return m_touchInteraction.get(); }
 
 Q_SIGNALS:
     void itemExpansionRequested(QTreeWidgetItem* item);
@@ -45,12 +41,12 @@ private:
     void handleItemTap(QTreeWidgetItem* item);
 
     FileBrowser* m_fileBrowser;
-    QScroller* m_scroller;
-    TouchInteraction* m_touchInteraction;
+    QScroller* m_scroller = nullptr;
+    QuteNote::OwnedPtr<TouchInteraction> m_touchInteraction;
     QPoint m_touchStartPos;
-    QTreeWidgetItem* m_lastTouchedItem;
+    QTreeWidgetItem* m_lastTouchedItem = nullptr;
     bool m_isItemDrag{false};
-    QTimer* m_longPressTimer{nullptr};
+    QuteNote::OwnedPtr<QTimer> m_longPressTimer;
     QPoint m_lastTouchPos;
     bool m_longPressTriggered{false};
     

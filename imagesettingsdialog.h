@@ -8,6 +8,7 @@
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QButtonGroup>
+#include "smartpointers.h"
 
 class ImageSettingsDialog : public QFrame
 {
@@ -39,12 +40,12 @@ private:
     void setupUI();
     void updateSliderLabel(int value);
 
-    QSlider *m_widthSlider{};
-    QLabel *m_widthLabel{};
-    QButtonGroup *m_alignGroup{};
-    QPushButton *m_btnLeft{};
-    QPushButton *m_btnCenter{};
-    QPushButton *m_btnRight{};
+    QuteNote::OwnedPtr<QSlider> m_widthSlider;
+    QuteNote::OwnedPtr<QLabel> m_widthLabel;
+    QuteNote::OwnedPtr<QButtonGroup> m_alignGroup;
+    QPushButton *m_btnLeft = nullptr;
+    QPushButton *m_btnCenter = nullptr;
+    QPushButton *m_btnRight = nullptr;
     
     int m_currentWidthPct;
     Qt::Alignment m_currentAlignment;

@@ -1,10 +1,9 @@
 #include "mainwindow.h"
-#include <QtCore/qglobal.h>
-#include "./ui_mainwindow.h"
 #include "filebrowser.h"
 #include "titlebarwidget.h"
 #include "thememanager.h"
 #include "texteditor.h"
+#include "uiutils.h"
 
 #include <QKeyEvent>
 #include <QMessageBox>
@@ -27,28 +26,20 @@
 #include <QFile>
 #include <QTextStream>
 #include <QDir>
-#include <QDir>
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
-    , ui(new Ui::MainWindow)
-    , m_stackedWidget(nullptr)
     , m_mainView(nullptr)
-    , m_settingsView(nullptr)
     , m_touchInteraction(nullptr)
     , m_transitionAnimation(nullptr)
     , m_statusBar(nullptr)
     , m_backPressCount(0)
 {
-    // First set up the basic UI from the .ui file
     m_themeManager = QuteNote::Singleton<ThemeManager>::instance();
     m_titleBarWidget = new TitleBarWidget(this);
     m_titleBarWidget->setThemeManager(m_themeManager);
-    if (ui) {
-        ui->setupUi(this);
-    }
-    
-    // Then set up our custom UI
+
     setupUI();
+
     // Insert the title widget into the MainView's toolbar so it's centered in the
     // application's main toolbar (appearing before the Undo button).
     if (m_mainView) {
@@ -58,13 +49,10 @@ MainWindow::MainWindow(QWidget *parent)
         // the menu widget fallback so it's still visible.
         setMenuWidget(m_titleBarWidget);
     }
-
-    // (diagnostic startup dump removed)
 }
 
 MainWindow::~MainWindow()
 {
-    delete ui;
 }
 
 void MainWindow::setupTouchInteraction()
@@ -75,7 +63,6 @@ void MainWindow::setupTouchInteraction()
     grabGesture(Qt::PinchGesture);
     
     // Set up any touch-specific behavior here
-    // For now, we'll just ensure the window is touch-friendly
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
@@ -109,9 +96,9 @@ void MainWindow::keyReleaseEvent(QKeyEvent *event)
 
     // Handle Android back button or Escape
     if (event->key() == Qt::Key_Back || event->key() == Qt::Key_Escape) {
-        // If we're in the settings view, go back to the main view
-        if (m_stackedWidget && m_stackedWidget->currentWidget() == m_settingsView) {
-            showMainView();
+        // If the right settings panel is open, close it
+        if (m_mainView && m_mainView->isPanelOpen(MainView::PanelSide::Right)) {
+            m_mainView->togglePanel(MainView::PanelSide::Right, false);
             event->accept();
             return;
         }
@@ -131,11 +118,7 @@ void MainWindow::keyReleaseEvent(QKeyEvent *event)
         }
 
         // Second press: quit the application
-#ifdef Q_OS_ANDROID
-        QTimer::singleShot(0, qApp, &QApplication::quit);
-#else
-        QApplication::quit();
-#endif
+        UIUtils::quitApplication();
         event->accept();
         return;
     }
@@ -163,61 +146,30 @@ void MainWindow::setupUI()
         });
     }
 
-    // Create stacked widget for switching between views
-    m_stackedWidget = new QStackedWidget(this);
-
     // Set up touch interaction first
     setupTouchInteraction();
 
-    // Create main view and settings view
+    // Create main view — owns the editor, file browser, and settings panel internally
     m_mainView = new MainView(this);
-    m_settingsView = new SettingsView(this);
-
-    // Initialize the settings view component
-    if (m_settingsView) {
-        m_settingsView->initializeComponent();
-        // setupComponent() is called automatically during initialization
-    }
-    // MainView inherits from QWidget, not ComponentBase, so no initializeComponent needed
     
     // Set the default save directory for the text editor
     if (m_mainView && m_mainView->textEditor()) {
         m_mainView->textEditor()->setDefaultSaveDirectory(m_mainView->rootDirectory());
     }
 
-    // Check for null pointers before adding to stacked widget
-    if (m_mainView && m_settingsView && m_stackedWidget) {
-        // Add views to stacked widget
-        m_stackedWidget->addWidget(m_mainView);
-        m_stackedWidget->addWidget(m_settingsView);
+    // MainView is the sole central widget
+    setCentralWidget(m_mainView);
 
-        // Set central widget
-        setCentralWidget(m_stackedWidget);
-        // (No connection to MainView::currentFileChanged, as it does not exist)
-    }
-
-    // Connect signals only if views were created successfully
-    if (m_mainView && m_settingsView) {
-        connect(m_mainView, &MainView::settingsRequested,
-                this, &MainWindow::showSettings);
-        connect(m_settingsView, &SettingsView::settingsChanged,
-                this, &MainWindow::applySettings);
-        connect(m_settingsView, &SettingsView::backToMain,
-                this, &MainWindow::showMainView);
-        connect(m_mainView, &MainView::fileSaved, this, [this](const QString &filePath) {
-            Q_UNUSED(filePath);
-            if (m_mainView && m_mainView->fileBrowser()) {
-                m_mainView->fileBrowser()->populateTree();
-            }
-        });
-    }
+    // Connect signal for when a file is saved (refresh file browser)
+    connect(m_mainView, &MainView::fileSaved, this, [this](const QString &filePath) {
+        Q_UNUSED(filePath);
+        if (m_mainView && m_mainView->fileBrowser()) {
+            m_mainView->fileBrowser()->populateTree();
+        }
+    });
 
     // Set window properties
-#ifndef Q_OS_ANDROID
-    setWindowTitle("QuteNote");
-    setMinimumSize(800, 600);
-    resize(1200, 800);
-#endif
+    UIUtils::setupDesktopWindow(this, "QuteNote", 800, 600, 1200, 800);
 
     // Create status bar
     m_statusBar = statusBar();
@@ -225,6 +177,16 @@ void MainWindow::setupUI()
     
     // Set initial height to half of default
     m_statusBar->setFixedHeight(20);
+    
+    // Hide the built-in separator QFrame between central widget and status bar.
+    // QMainWindow::separator CSS doesn't override native style on all platforms.
+    const auto qframes = findChildren<QFrame*>();
+    for (QFrame* f : qframes) {
+        if (f->objectName().isEmpty() && f->parentWidget() == this) {
+            f->setFixedHeight(0);
+            f->hide();
+        }
+    }
     
     // Connect to theme changes to apply different colors to UI elements
     connect(m_themeManager, &ThemeManager::themeChanged, this, &MainWindow::onThemeChanged);
@@ -269,27 +231,6 @@ void MainWindow::onTitleBarFilenameChanged(const QString &newName)
 
 }
 
-void MainWindow::applySettings()
-{
-    if (!m_settingsView || !m_mainView) return;
-    
-    // Get the settings object from the settings view
-    QSettings* settings = new QSettings("QuteNote", "QuteNote");
-    
-    // Apply notes directory setting
-    QString notesDir = settings->value("notesDirectory", 
-        QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/QuteNote").toString();
-    m_mainView->setRootDirectory(notesDir);
-    
-    // Apply sidebar visibility setting
-    bool showSidebar = settings->value("showSidebarByDefault", true).toBool();
-    m_mainView->toggleSidebar(showSidebar);
-    
-    delete settings;
-    
-    showMainView();
-}
-
 void MainWindow::onThemeChanged(const Theme &newTheme)
 {
     // Delegate theme application to the ThemeManager to ensure all styles are
@@ -307,28 +248,6 @@ void MainWindow::onThemeChanged(const Theme &newTheme)
     // Update Android system UI colors to match the new theme
     setupAndroidSystemUI();
 #endif
-}
-
-void MainWindow::showMainView()
-{
-    if (!m_stackedWidget || !m_mainView) return;
-    m_stackedWidget->setCurrentWidget(m_mainView);
-    #ifndef Q_OS_ANDROID
-    setWindowTitle("QuteNote");
-    #endif
-    m_backPressCount = 0; // Reset back press counter when returning to main view
-
-    // (temporary diagnostics removed)
-}
-
-void MainWindow::showSettings()
-{
-    if (!m_stackedWidget || !m_settingsView) return;
-    m_stackedWidget->setCurrentWidget(m_settingsView);
-#ifndef Q_OS_ANDROID
-    setWindowTitle("QuteNote - Settings");
-#endif
-    m_backPressCount = 0; // Reset back press counter when entering settings
 }
 
 #ifdef Q_OS_ANDROID

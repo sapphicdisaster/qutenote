@@ -1,4 +1,5 @@
 #include "colorpicker_touch.h"
+#include "uiutils.h"
 #include <QtCore/qglobal.h>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -7,7 +8,6 @@
 #include <QLabel>
 #include <QPainter>
 #include <QGestureEvent>
-#include <QSettings>
 #include <QtMath>
  #include <QPropertyAnimation>
  #include <QScreen>
@@ -20,13 +20,8 @@
 
 TouchColorPicker::TouchColorPicker(QWidget *parent)
     : QDialog(parent)
-    , m_touchInteraction(new TouchInteraction(this))
-    , m_hueSatMap(new HueSatMap(this))
-    , m_colorPreview(nullptr)
-    , m_touchSlider(nullptr)
-    , m_recentColorsWidget(nullptr)
-    , m_okButton(nullptr)
-    , m_cancelButton(nullptr)
+    , m_touchInteraction(QuteNote::makeOwned<TouchInteraction>(this))
+    , m_hueSatMap(QuteNote::makeOwned<HueSatMap>(this))
     , m_scale(1.0)
     , m_color(Qt::white)
     , m_updatingControls(false)
@@ -45,7 +40,7 @@ TouchColorPicker::TouchColorPicker(QWidget *parent)
     m_backdrop = nullptr;
     
     // Load saved recent colors
-    QSettings settings;
+    QSettings& settings = UIUtils::quteSettings();
     const QStringList colorStrings = settings.value("recentColors").toStringList();
     for (const QString &colorStr : colorStrings) {
         QColor color(colorStr);
@@ -104,10 +99,10 @@ void TouchColorPicker::setFullscreenAnimated(bool enabled)
 
 void TouchColorPicker::setupTouchInteraction()
 {
-    connect(m_touchInteraction, &TouchInteraction::pinchScaleChanged,
+    connect(m_touchInteraction.get(), &TouchInteraction::pinchScaleChanged,
             this, &TouchColorPicker::setScale);
             
-    connect(m_hueSatMap, &HueSatMap::colorSelected,
+    connect(m_hueSatMap.get(), &HueSatMap::colorSelected,
             this, &TouchColorPicker::setColor);
 
     // Install pan/swipe gestures on this dialog for dismiss
@@ -122,24 +117,24 @@ void TouchColorPicker::createLayout()
     mainLayout->setContentsMargins(20, 20, 20, 20);
 
     // Color preview at the top
-    m_colorPreview = new QWidget(this);
+    m_colorPreview = QuteNote::makeOwned<QWidget>(this);
     m_colorPreview->setMinimumHeight(MIN_TOUCH_TARGET * 2);
     m_colorPreview->setAutoFillBackground(true);
-    mainLayout->addWidget(m_colorPreview);
+    mainLayout->addWidget(m_colorPreview.get());
 
     // Hue/Saturation map
     m_hueSatMap->setMinimumSize(MIN_TOUCH_TARGET * 4, MIN_TOUCH_TARGET * 4);
-    mainLayout->addWidget(m_hueSatMap, 1);
+    mainLayout->addWidget(m_hueSatMap.get(), 1);
 
     // Recent colors grid
-    m_recentColorsWidget = new QWidget(this);
-    QGridLayout *gridLayout = new QGridLayout(m_recentColorsWidget);
+    m_recentColorsWidget = QuteNote::makeOwned<QWidget>(this);
+    QGridLayout *gridLayout = new QGridLayout(m_recentColorsWidget.get());
     gridLayout->setSpacing(8);
     
     const int rows = MAX_RECENT_COLORS / COLOR_GRID_COLUMNS;
     for (int i = 0; i < rows; ++i) {
         for (int j = 0; j < COLOR_GRID_COLUMNS; ++j) {
-            QPushButton *btn = new QPushButton(m_recentColorsWidget);
+            QPushButton *btn = new QPushButton(m_recentColorsWidget.get());
             btn->setFixedSize(MIN_TOUCH_TARGET, MIN_TOUCH_TARGET);
             btn->setFlat(true);
             gridLayout->addWidget(btn, i, j);
@@ -164,25 +159,25 @@ void TouchColorPicker::createLayout()
         }
     }
     
-    mainLayout->addWidget(m_recentColorsWidget);
+    mainLayout->addWidget(m_recentColorsWidget.get());
 
     // Action buttons
     QHBoxLayout *buttonLayout = new QHBoxLayout;
     buttonLayout->setSpacing(12);
     
-    m_cancelButton = new QPushButton(tr("Cancel"), this);
-    m_okButton = new QPushButton(tr("OK"), this);
+    m_cancelButton = QuteNote::makeOwned<QPushButton>(tr("Cancel"), this);
+    m_okButton = QuteNote::makeOwned<QPushButton>(tr("OK"), this);
     
     m_cancelButton->setMinimumSize(MIN_TOUCH_TARGET * 2, MIN_TOUCH_TARGET);
     m_okButton->setMinimumSize(MIN_TOUCH_TARGET * 2, MIN_TOUCH_TARGET);
     
-    buttonLayout->addWidget(m_cancelButton);
-    buttonLayout->addWidget(m_okButton);
+    buttonLayout->addWidget(m_cancelButton.get());
+    buttonLayout->addWidget(m_okButton.get());
     
     mainLayout->addLayout(buttonLayout);
 
-    connect(m_okButton, &QPushButton::clicked, this, &QDialog::accept);
-    connect(m_cancelButton, &QPushButton::clicked, this, &QDialog::reject);
+    connect(m_okButton.get(), &QPushButton::clicked, this, &QDialog::accept);
+    connect(m_cancelButton.get(), &QPushButton::clicked, this, &QDialog::reject);
 }
 
 void TouchColorPicker::showEvent(QShowEvent *ev)
@@ -341,7 +336,7 @@ void TouchColorPicker::saveRecentColor(const QColor &color)
     for (const QColor &c : m_recentColors) {
         colorStrings.append(c.name());
     }
-    QSettings().setValue("recentColors", colorStrings);
+    UIUtils::quteSettings().setValue("recentColors", colorStrings);
     
     updateRecentColors();
 }

@@ -1,4 +1,5 @@
 #include "aboutdialog.h"
+#include "smartpointers.h"
 #include <QVBoxLayout>
 #include <QTextBrowser>
 #include <QPushButton>
@@ -18,9 +19,9 @@
 
 AboutDialog::AboutDialog(QWidget *parent)
     : QDialog(parent)
-    , m_stack(new QStackedWidget(this))
-    , m_licensePage(new LicenseSettingsPage(this))
-    , m_qtBrowser(new QTextBrowser(this))
+    , m_stack(QuteNote::makeOwned<QStackedWidget>(this))
+    , m_licensePage(QuteNote::makeOwned<LicenseSettingsPage>(this))
+    , m_qtBrowser(QuteNote::makeOwned<QTextBrowser>(this))
 {
     setWindowFlags(Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
     setModal(true);
@@ -29,25 +30,25 @@ AboutDialog::AboutDialog(QWidget *parent)
     mainLayout->setContentsMargins(8,8,8,8);
     mainLayout->setSpacing(8);
 
-    m_title = new QLabel(tr("%1").arg(QApplication::applicationName()), this);
+    m_title = QuteNote::makeOwned<QLabel>(tr("%1").arg(QApplication::applicationName()), this);
     QFont f = m_title->font(); f.setPointSize(18); f.setBold(true); m_title->setFont(f);
     m_title->setAlignment(Qt::AlignHCenter);
-    mainLayout->addWidget(m_title);
+    mainLayout->addWidget(m_title.get());
 
     // Stack contains license page and Qt-about. The short app-about copy
     // now lives in Settings -> About, so we show license first by default.
-    m_stack->addWidget(m_licensePage);
+    m_stack->addWidget(m_licensePage.get());
 
     // Qt about page (initially a QTextBrowser)
     m_qtBrowser->setReadOnly(true);
     m_qtBrowser->setOpenExternalLinks(true);
-    m_stack->addWidget(m_qtBrowser);
+    m_stack->addWidget(m_qtBrowser.get());
 
     // Start on the License page
-    m_stack->setCurrentWidget(m_licensePage);
+    m_stack->setCurrentWidget(m_licensePage.get());
     m_title->setText(tr("License"));
 
-    mainLayout->addWidget(m_stack, 1);
+    mainLayout->addWidget(m_stack.get(), 1);
 
     // Buttons: License / Close. The license button will toggle between
     // license and Qt-about when pressed. Donate button was removed and its
@@ -55,15 +56,15 @@ AboutDialog::AboutDialog(QWidget *parent)
     auto btnLayout = new QHBoxLayout();
     btnLayout->addStretch();
 
-    m_toggleBtn = new QPushButton(tr("Show Qt About"), this);
-    m_closeBtn = new QPushButton(tr("Close"), this);
+    m_toggleBtn = QuteNote::makeOwned<QPushButton>(tr("Show Qt About"), this);
+    m_closeBtn = QuteNote::makeOwned<QPushButton>(tr("Close"), this);
 
-    btnLayout->addWidget(m_toggleBtn);
-    btnLayout->addWidget(m_closeBtn);
+    btnLayout->addWidget(m_toggleBtn.get());
+    btnLayout->addWidget(m_closeBtn.get());
     mainLayout->addLayout(btnLayout);
 
-    connect(m_closeBtn, &QPushButton::clicked, this, &AboutDialog::onCloseClicked);
-    connect(m_toggleBtn, &QPushButton::clicked, this, &AboutDialog::onToggleView);
+    connect(m_closeBtn.get(), &QPushButton::clicked, this, &AboutDialog::onCloseClicked);
+    connect(m_toggleBtn.get(), &QPushButton::clicked, this, &AboutDialog::onToggleView);
 
     setLayout(mainLayout);
 }
@@ -97,12 +98,12 @@ void AboutDialog::onToggleView()
                 QString("<p>For Qt source and license details see: <a href='https://code.qt.io/'>https://code.qt.io/</a></p>");
 
         m_qtBrowser->setHtml(qtHtml);
-        m_stack->setCurrentWidget(m_qtBrowser);
+        m_stack->setCurrentWidget(m_qtBrowser.get());
         m_toggleBtn->setText(tr("Show License"));
         m_title->setText(tr("Qt Details"));
     } else {
         // Currently Qt about - go back to license
-        m_stack->setCurrentWidget(m_licensePage);
+        m_stack->setCurrentWidget(m_licensePage.get());
         m_toggleBtn->setText(tr("Show Qt Details"));
         m_title->setText(tr("Qutenote License"));
     }

@@ -15,7 +15,7 @@ FileBrowserTouchHandler::FileBrowserTouchHandler(FileBrowser* fileBrowser)
     : TouchInteractionHandler(fileBrowser)
     , m_fileBrowser(fileBrowser)
     , m_scroller(nullptr)
-    , m_touchInteraction(new TouchInteraction(this))
+    , m_touchInteraction(QuteNote::makeOwned<TouchInteraction>(this))
     , m_lastTouchedItem(nullptr)
 {
     if (!m_fileBrowser) return;
@@ -27,13 +27,13 @@ FileBrowserTouchHandler::FileBrowserTouchHandler(FileBrowser* fileBrowser)
     m_touchInteraction->setBouncePreset(TouchInteraction::Normal);
     
     // Connect touch interaction signals
-    connect(m_touchInteraction, &TouchInteraction::overscrollAmountChanged,
+    connect(m_touchInteraction.get(), &TouchInteraction::overscrollAmountChanged,
             this, &FileBrowserTouchHandler::overscrollAmountChanged);
 
     // Long-press timer for initiating item drags explicitly
-    m_longPressTimer = new QTimer(this);
+    m_longPressTimer = QuteNote::makeOwned<QTimer>(this);
     m_longPressTimer->setSingleShot(true);
-    connect(m_longPressTimer, &QTimer::timeout, this, [this]() {
+    connect(m_longPressTimer.get(), &QTimer::timeout, this, [this]() {
         if (!m_fileBrowser || !m_fileBrowser->treeWidget()) return;
         QTreeWidget* tw = m_fileBrowser->treeWidget();
         if (!m_lastTouchedItem) return;
@@ -62,7 +62,7 @@ FileBrowserTouchHandler::~FileBrowserTouchHandler()
 {
     if (m_fileBrowser && m_fileBrowser->treeWidget()) {
         disableGestureHandling(m_fileBrowser->treeWidget());
-        QScroller::ungrabGesture(m_fileBrowser->treeWidget()->viewport());
+        cleanupQScroller(m_fileBrowser->treeWidget()->viewport());
     }
 }
 
@@ -71,16 +71,7 @@ void FileBrowserTouchHandler::setupScrolling()
     auto treeWidget = m_fileBrowser->treeWidget();
     if (!treeWidget || !treeWidget->viewport()) return;
 
-    m_scroller = QScroller::scroller(treeWidget->viewport());
-    QScrollerProperties props = m_scroller->scrollerProperties();
-    
-    props.setScrollMetric(QScrollerProperties::VerticalOvershootPolicy, 
-                         QScrollerProperties::OvershootWhenScrollable);
-    props.setScrollMetric(QScrollerProperties::OvershootDragResistanceFactor, 0.5);
-    props.setScrollMetric(QScrollerProperties::OvershootDragDistanceFactor, 0.3);
-    
-    m_scroller->setScrollerProperties(props);
-    QScroller::grabGesture(treeWidget->viewport(), QScroller::TouchGesture);
+    m_scroller = setupQScroller(treeWidget->viewport());
     
     updateScrollLimits();
 }

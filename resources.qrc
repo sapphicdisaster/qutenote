@@ -40,5 +40,7 @@
     <file>resources/icons/custom/chevron-down.svg</file>
     <file>resources/fonts/NunitoSans-Variable.ttf</file>
     <file>resources/fonts/NunitoSans-Italic-Variable.ttf</file>
+    <file>resources/fonts/LibreBaskerville-Regular.ttf</file>
+    <file>resources/fonts/JetBrainsMono-Regular.ttf</file>
     </qresource>
 </RCC>

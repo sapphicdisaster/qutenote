@@ -2,6 +2,7 @@
 #define ABOUTDIALOG_H
 
 #include <QDialog>
+#include "smartpointers.h"
 
 class QTextBrowser;
 class LicenseSettingsPage;
@@ -24,12 +25,12 @@ private slots:
     void onToggleView();
 
 private:
-    QStackedWidget *m_stack;
-    LicenseSettingsPage *m_licensePage;
-    QTextBrowser *m_qtBrowser;
-    QPushButton *m_toggleBtn;
-    QPushButton *m_closeBtn;
-    QLabel *m_title;
+    QuteNote::OwnedPtr<QStackedWidget> m_stack;
+    QuteNote::OwnedPtr<LicenseSettingsPage> m_licensePage;
+    QuteNote::OwnedPtr<QTextBrowser> m_qtBrowser;
+    QuteNote::OwnedPtr<QPushButton> m_toggleBtn;
+    QuteNote::OwnedPtr<QPushButton> m_closeBtn;
+    QuteNote::OwnedPtr<QLabel> m_title;
 };
 
 #endif // ABOUTDIALOG_H

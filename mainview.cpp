@@ -2,6 +2,7 @@
 #include <QtCore/qglobal.h>
 #include "texteditor.h"
 #include "filebrowser.h"
+#include "settingsview.h"
 #include "thememanager.h"
 #include "titlebarwidget.h"
 
@@ -9,9 +10,8 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QDir>
-#include <QStandardPaths>
 #include <QTimer>
-#include <QSettings>
+#include "uiutils.h"
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QSplitter>
@@ -19,9 +19,9 @@
 #include <QPushButton>
 #include <QToolBar>
 #include <QAction>
-#include <QMenuBar>
 #include <QStatusBar>
 #include <QPropertyAnimation>
+#include <QVariantAnimation>
 #include <QTimer>
 #include <QApplication>
 #include <QEventLoop>
@@ -32,6 +32,7 @@
 #include <QTextEdit>
 #include <QMainWindow>
 #include <QCloseEvent>
+#include <QEvent>
 #include <QScrollArea>
 #include <QScroller>
 #include <QScrollBar>
@@ -39,52 +40,34 @@
 
 MainView::MainView(QWidget *parent)
     : QWidget(parent)
-    , m_rootDirectory(QSettings().value("notesDirectory", QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/QuteNote").toString())
+    , m_rootDirectory(UIUtils::quteSettings().value("notesDirectory", UIUtils::defaultNotesDirectory()).toString())
     , m_currentFile(QString())
-    , m_sidebarVisible(true)
-    , m_sidebarWidth(250) // Default sidebar width
-    , m_titleBarWidget(nullptr)
-    , m_sidebar(nullptr)
-    , m_fileBrowser(nullptr)
-    , m_textEditor(nullptr)
-    , m_toggleSidebarBtn(nullptr)
-    , m_sidebarLayout(nullptr)
-    , m_mainLayout(nullptr)
-    , m_resizeTimer(nullptr)
 {
     // Set window properties for better mobile experience
-
-#ifndef Q_OS_ANDROID
-    setWindowTitle("QuteNote");
-    setMinimumSize(360, 600);
-#endif
+    UIUtils::setupDesktopWindow(this, "QuteNote", 360, 600, 0, 0);
 
     // Enable touch events and gestures
     setAttribute(Qt::WA_AcceptTouchEvents);
-    grabGesture(Qt::SwipeGesture);
-    grabGesture(Qt::PanGesture);
-    grabGesture(Qt::PinchGesture);
 
     // Create main layout first
-    m_mainLayout = new QVBoxLayout(this);
+    m_mainLayout = QuteNote::makeOwned<QVBoxLayout>(this);
     m_mainLayout->setContentsMargins(0, 0, 0, 0);
     m_mainLayout->setSpacing(0);
 
     // Setup UI components
     setupUI();
-    setupMenus();
     setupToolbar();
 
     // Connect signals
     if (m_fileBrowser) {
-        connect(m_fileBrowser, &FileBrowser::fileSelected,
+        connect(m_fileBrowser.get(), &FileBrowser::fileSelected,
                 this, &MainView::onFileSelected);
     }
     
     if (m_textEditor) {
-        connect(m_textEditor, &TextEditor::fileSaved,
+        connect(m_textEditor.get(), &TextEditor::fileSaved,
                 this, &MainView::onFileSaved);
-        connect(m_textEditor, &TextEditor::modificationChanged,
+        connect(m_textEditor.get(), &TextEditor::modificationChanged,
                 this, &MainView::onEditorModified);
     }
 
@@ -103,12 +86,19 @@ void MainView::onThemeChanged(const Theme &newTheme)
 {
     // Apply theme to text editor if it exists
     if (m_textEditor) {
-        ThemeManager::instance()->applyThemeToEditor(m_textEditor, ThemeManager::instance()->editorTheme());
+        ThemeManager::instance()->applyThemeToEditor(m_textEditor.get(), ThemeManager::instance()->editorTheme());
     }
     
     // Apply theme to file browser if it exists
     if (m_fileBrowser) {
-        ThemeManager::instance()->applyThemeToFileBrowser(m_fileBrowser);
+        ThemeManager::instance()->applyThemeToFileBrowser(m_fileBrowser.get());
+    }
+
+    // Apply theme to panel handles
+    if (m_panelManager) {
+        m_panelManager->applyHandleStyle(m_panelManager->leftHandle(), PanelManager::PanelSide::Left);
+        m_panelManager->applyHandleStyle(m_panelManager->rightHandle(), PanelManager::PanelSide::Right);
+        m_panelManager->positionHandles();
     }
 }
 
@@ -169,8 +159,8 @@ void MainView::applyOverlayStyleToMain()
         btn->setStyleSheet(ss);
     };
 
-    setBtn(m_overscrollLeftWidget);
-    setBtn(m_overscrollRightWidget);
+    setBtn(m_overscrollLeftWidget.get());
+    setBtn(m_overscrollRightWidget.get());
 
     // Apply touch attributes
     m_overscrollLeftWidget->setAttribute(Qt::WA_AcceptTouchEvents, true);
@@ -228,24 +218,24 @@ void MainView::resizeEvent(QResizeEvent *event)
 
         // Reset user manual-toggle tracker upon rotation change to give
         // the system control until they touch it again in this new state.
-        m_userToggledSidebar = false;
+        setUserToggledSidebar(false);
 
-        QSettings settings("QuteNote", "QuteNote");
-        bool autoHideEnabled = settings.value("autoHideSidebar", true).toBool();
+        bool autoHideEnabled = UIUtils::quteSettings().value("autoHideSidebar", true).toBool();
 
         if (autoHideEnabled) {
             if (m_isPortrait) {
                 // Entering Portrait: Save previous state, enforce hidden sidebar
-                m_wasSidebarVisibleBeforePortrait = m_sidebarVisible;
-                if (m_sidebarVisible) {
+                bool leftOpen = isPanelOpen(PanelManager::PanelSide::Left);
+                m_wasSidebarVisibleBeforePortrait = leftOpen;
+                if (leftOpen) {
                     toggleSidebar(false);
-                    m_userToggledSidebar = false; // System generated this toggle
+                    setUserToggledSidebar(false); // System generated this toggle
                 }
             } else {
                 // Entering Landscape: Restore if it was visible before portrait
-                if (m_wasSidebarVisibleBeforePortrait && !m_sidebarVisible) {
+                if (m_wasSidebarVisibleBeforePortrait && !isPanelOpen(PanelManager::PanelSide::Left)) {
                     toggleSidebar(true);
-                    m_userToggledSidebar = false; // System generated this toggle
+                    setUserToggledSidebar(false); // System generated this toggle
                 }
             }
         }
@@ -264,6 +254,9 @@ void MainView::resizeEvent(QResizeEvent *event)
     if (layout()) {
         layout()->activate();
     }
+
+    // Reposition panel edge handles
+    if (m_panelManager) m_panelManager->positionHandles();
     
     qDebug() << "[LayoutDebug] MainView target size:" << size();
     if (m_splitter) qDebug() << "[LayoutDebug] Splitter size:" << m_splitter->size();
@@ -280,155 +273,125 @@ void MainView::closeEvent(QCloseEvent *event)
     }
 }
 
+void MainView::changeEvent(QEvent *event)
+{
+    if (event->type() == QEvent::ApplicationPaletteChange || event->type() == QEvent::ApplicationFontChange) {
+        recomputeToolbarContentWidth();
+    }
+    QWidget::changeEvent(event);
+}
+
 void MainView::setupUI()
 {
-    // Create sidebar with flexible sizing
-
-    m_sidebar = new QWidget(this);
-    m_sidebar->setMinimumWidth(150);  // Reasonable minimum width
+    // ── Left sidebar (File Browser) ──────────────────────────────────────
+    m_sidebar = QuteNote::makeOwned<QWidget>(this);
+    m_sidebar->setMinimumWidth(0);
     m_sidebar->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
-    // Create file browser
-
-    m_fileBrowser = new FileBrowser(m_sidebar);
+    m_fileBrowser = QuteNote::makeOwned<FileBrowser>(m_sidebar.get());
     m_fileBrowser->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
-    // Setup sidebar layout
-    m_sidebarLayout = new QVBoxLayout(m_sidebar);
+    m_sidebarLayout = QuteNote::makeOwned<QVBoxLayout>(m_sidebar.get());
     m_sidebarLayout->setContentsMargins(0, 0, 0, 0);
     m_sidebarLayout->setSpacing(0);
-    m_sidebarLayout->addWidget(m_fileBrowser);
+    m_sidebarLayout->addWidget(m_fileBrowser.get());
 
-    // Create text editor with proper flexbox-like behavior
-
-    m_textEditor = new TextEditor(this);
+    // ── Center editor ────────────────────────────────────────────────────
+    m_textEditor = QuteNote::makeOwned<TextEditor>(this);
     m_textEditor->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
-    // Create splitter for flexible layout
+    // ── Right panel (Settings) ───────────────────────────────────────────
+    m_rightPanel = QuteNote::makeOwned<QWidget>(this);
+    m_rightPanel->setMinimumWidth(0);
+    m_rightPanel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_rightPanelLayout = QuteNote::makeOwned<QVBoxLayout>(m_rightPanel.get());
+    m_rightPanelLayout->setContentsMargins(0, 0, 0, 0);
+    m_rightPanelLayout->setSpacing(0);
 
-    m_splitter = new QSplitter(Qt::Horizontal, this);
-    m_splitter->setHandleWidth(8);  // Larger handle for easier resizing
-    m_splitter->setChildrenCollapsible(true);  // Allow widgets to collapse (needed for hide/show)
-    m_splitter->setOpaqueResize(true);  // Enable opaque resizing for smoother experience
+    m_settingsView = QuteNote::makeOwned<SettingsView>(m_rightPanel.get());
+    m_settingsView->initializeComponent();
+    m_settingsView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_rightPanelLayout->addWidget(m_settingsView.get());
+
+    // ── 3-panel splitter ─────────────────────────────────────────────────
+    m_splitter = QuteNote::makeOwned<QSplitter>(Qt::Horizontal, this);
+    m_splitter->setHandleWidth(8);
+    m_splitter->setChildrenCollapsible(true);
+    m_splitter->setOpaqueResize(true);
     m_splitter->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    
-    // Style the splitter handle
-    m_splitter->setStyleSheet(
-        "QSplitter::handle { "
-        "  background: palette(mid); "
-        "  border: 1px solid palette(dark); "
-        "}"
-        "QSplitter::handle:hover { "
-        "  background: palette(highlight); "
-        "}"
-    );
-    
-    // Add widgets to splitter
+    m_splitter->setFrameShape(QFrame::NoFrame);
 
-    m_splitter->addWidget(m_sidebar);
-    m_splitter->addWidget(m_textEditor);
-    
-    // Set stretch factors for flexbox-like behavior
+    m_splitter->addWidget(m_sidebar.get());     // index 0
+    m_splitter->addWidget(m_textEditor.get());  // index 1
+    m_splitter->addWidget(m_rightPanel.get());  // index 2
 
     m_splitter->setStretchFactor(0, 0);  // Sidebar maintains its size
-    m_splitter->setStretchFactor(1, 1);  // Editor takes all remaining space
-    
-    // Set initial splitter sizes (sidebar: 250px, editor: remaining)
+    m_splitter->setStretchFactor(1, 1);  // Editor stretches
+    m_splitter->setStretchFactor(2, 0);  // Right panel maintains its size
 
-    // Only set initial sizes if not on Android (let layout fill on Android)
-#ifndef Q_OS_ANDROID
-    m_splitter->setSizes({250, 1000});
-#endif
-    
-    // Add splitter to the main layout
+    // Start with both panels closed
+    m_splitter->setSizes({0, 1, 0});
+    m_sidebar->hide();
+    m_rightPanel->hide();
 
-    m_mainLayout->addWidget(m_splitter);
+    m_mainLayout->addWidget(m_splitter.get());
 
-    // On Android, ensure the splitter fills the available space
-#ifdef Q_OS_ANDROID
-    m_mainLayout->setStretch(0, 1);
-#endif
-    
-    // Connect signals
-    connect(m_fileBrowser, &FileBrowser::fileSelected,
+    if (UIUtils::isMobileDevice()) {
+        m_mainLayout->setStretch(0, 1);
+    }
+
+    // ── Panel manager (handles, animation, positioning) ───────────────────
+    m_panelManager = QuteNote::makeOwned<PanelManager>(m_splitter.get(), m_sidebar.get(), m_rightPanel.get(), this);
+
+    // ── Signal connections ───────────────────────────────────────────────
+    connect(m_fileBrowser.get(), &FileBrowser::fileSelected,
             this, &MainView::onFileSelected);
-    connect(m_textEditor, &TextEditor::modificationChanged,
+    connect(m_textEditor.get(), &TextEditor::modificationChanged,
             this, &MainView::onEditorModified);
-    
-    // Connect to theme changes
+
+    // Settings view signals
+    connect(m_settingsView.get(), &SettingsView::settingsChanged,
+            this, &MainView::onSettingsChanged);
+    connect(m_settingsView.get(), &SettingsView::backToMain,
+            this, &MainView::onSettingsBackToMain);
+
+    // Theme
     connect(ThemeManager::instance(), &ThemeManager::themeChanged, this, &MainView::onThemeChanged);
     connect(ThemeManager::instance(), &ThemeManager::themeApplyStarted, this, &MainView::onThemeApplyStarted);
     connect(ThemeManager::instance(), &ThemeManager::themeApplyFinished, this, &MainView::onThemeApplyFinished);
-    // Apply initial theme
     onThemeChanged(ThemeManager::instance()->currentTheme());
 
-    // Create a lightweight overlay to display while a theme is being applied.
-    // This overlay is intentionally simple and uses an indeterminate progress
-    // bar so users get immediate feedback when themes change.
-    m_themeOverlay = new QWidget(this);
+    // ── Theme overlay ────────────────────────────────────────────────────
+    m_themeOverlay = QuteNote::makeOwned<QWidget>(this);
     m_themeOverlay->setObjectName("ThemeOverlay");
     m_themeOverlay->setVisible(false);
     m_themeOverlay->setAttribute(Qt::WA_NoSystemBackground, false);
     m_themeOverlay->setAttribute(Qt::WA_TransparentForMouseEvents, false);
     m_themeOverlay->setStyleSheet("QWidget#ThemeOverlay { background: rgba(0,0,0,0.22); }");
-    QVBoxLayout *overlayLayout = new QVBoxLayout(m_themeOverlay);
+    QVBoxLayout *overlayLayout = new QVBoxLayout(m_themeOverlay.get());
     overlayLayout->setContentsMargins(0,0,0,0);
     overlayLayout->addStretch();
-    m_themeProgressBar = new QProgressBar(m_themeOverlay);
+    m_themeProgressBar = QuteNote::makeOwned<QProgressBar>(m_themeOverlay.get());
     m_themeProgressBar->setFixedWidth(240);
-    m_themeProgressBar->setRange(0, 0); // indeterminate
+    m_themeProgressBar->setRange(0, 0);
     m_themeProgressBar->setTextVisible(false);
-    overlayLayout->addWidget(m_themeProgressBar, 0, Qt::AlignHCenter);
+    overlayLayout->addWidget(m_themeProgressBar.get(), 0, Qt::AlignHCenter);
     overlayLayout->addStretch();
 }
 
-void MainView::setupMenus()
+void MainView::setupToolbar()
 {
-    m_menuBar = new QMenuBar();
-    m_menuBar->setStyleSheet(
-        "QMenuBar { "
-        "  background: palette(window); "
-        "  border-bottom: 1px solid palette(mid); "
-        "} "
-        "QMenuBar::item { "
-        "  padding: 8px 12px; "
-        "  background: transparent; "
-        "} "
-        "QMenuBar::item:selected { "
-        "  background: palette(highlight); "
-        "  color: palette(highlighted-text); "
-        "} "
-        "QMenuBar::item:pressed { "
-        "  background: palette(dark); "
-        "  color: palette(light); "
-        "} "
-        "QMenu { "
-        "  border: 1px solid palette(mid); "
-        "  border-radius: 4px; "
-        "} "
-        "QMenu::item { "
-        "  padding: 8px 24px; "
-        "  border-radius: 2px; "
-        "} "
-        "QMenu::item:selected { "
-        "  background: palette(highlight); "
-        "  color: palette(highlighted-text); "
-        "}"
-    );
-
-    // File menu
-    QMenu *fileMenu = m_menuBar->addMenu("&File");
-
-    m_newAction = fileMenu->addAction("&New");
+    // ── Create actions directly (no menu bar) ──────────────────────────────────
+    m_newAction = QuteNote::makeOwned<QAction>(tr("&New"), this);
     m_newAction->setShortcut(QKeySequence::New);
-    connect(m_newAction, &QAction::triggered, this, [this]() {
+    connect(m_newAction.get(), &QAction::triggered, this, [this]() {
         updateStatusBar("Creating new document...", 1000);
         newFile();
     });
 
-    m_openAction = fileMenu->addAction("&Open");
+    m_openAction = QuteNote::makeOwned<QAction>(tr("&Open"), this);
     m_openAction->setShortcut(QKeySequence::Open);
-    connect(m_openAction, &QAction::triggered, this, [this]() {
+    connect(m_openAction.get(), &QAction::triggered, this, [this]() {
         updateStatusBar("Opening file dialog...", 1000);
         QString fileName = QFileDialog::getOpenFileName(this,
             "Open Document", m_fileBrowser->currentDirectory(),
@@ -440,86 +403,30 @@ void MainView::setupMenus()
         }
     });
 
-    fileMenu->addSeparator();
-
-    m_saveAction = fileMenu->addAction("&Save");
+    m_saveAction = QuteNote::makeOwned<QAction>(tr("&Save"), this);
     m_saveAction->setShortcut(QKeySequence::Save);
-    connect(m_saveAction, &QAction::triggered, this, &MainView::saveFile);
+    connect(m_saveAction.get(), &QAction::triggered, this, &MainView::saveFile);
 
-    fileMenu->addSeparator();
+    m_settingsAction = QuteNote::makeOwned<QAction>(tr("&Settings"), this);
+    connect(m_settingsAction.get(), &QAction::triggered, this, &MainView::showSettings);
 
-    m_settingsAction = fileMenu->addAction("&Settings");
-    connect(m_settingsAction, &QAction::triggered, this, &MainView::showSettings);
+    m_undoAction = QuteNote::makeOwned<QAction>(tr("&Undo"), this);
+    m_undoAction->setShortcut(QKeySequence::Undo);
 
-    fileMenu->addSeparator();
+    m_redoAction = QuteNote::makeOwned<QAction>(tr("&Redo"), this);
+    m_redoAction->setShortcut(QKeySequence::Redo);
 
-    m_exitAction = fileMenu->addAction("E&xit");
-    m_exitAction->setShortcut(QKeySequence::Quit);
-    connect(m_exitAction, &QAction::triggered, this, &QWidget::close);
+    m_cutAction = QuteNote::makeOwned<QAction>(tr("Cu&t"), this);
+    m_cutAction->setShortcut(QKeySequence::Cut);
 
-    // Edit menu
-    QMenu *editMenu = m_menuBar->addMenu("&Edit");
+    m_copyAction = QuteNote::makeOwned<QAction>(tr("&Copy"), this);
+    m_copyAction->setShortcut(QKeySequence::Copy);
 
-    // Only set up edit menu actions if text editor exists
-    if (m_textEditor) {
-        m_undoAction = editMenu->addAction("&Undo");
-        m_undoAction->setShortcut(QKeySequence::Undo);
-        connect(m_undoAction, &QAction::triggered, m_textEditor, &TextEditor::undo);
+    m_pasteAction = QuteNote::makeOwned<QAction>(tr("&Paste"), this);
+    m_pasteAction->setShortcut(QKeySequence::Paste);
 
-        m_redoAction = editMenu->addAction("&Redo");
-        m_redoAction->setShortcut(QKeySequence::Redo);
-        connect(m_redoAction, &QAction::triggered, m_textEditor, &TextEditor::redo);
-
-        editMenu->addSeparator();
-
-        m_cutAction = editMenu->addAction("Cu&t");
-        m_cutAction->setShortcut(QKeySequence::Cut);
-        connect(m_cutAction, &QAction::triggered, m_textEditor, &TextEditor::cut);
-
-        m_copyAction = editMenu->addAction("&Copy");
-        m_copyAction->setShortcut(QKeySequence::Copy);
-        connect(m_copyAction, &QAction::triggered, m_textEditor, &TextEditor::copy);
-
-        m_pasteAction = editMenu->addAction("&Paste");
-        m_pasteAction->setShortcut(QKeySequence::Paste);
-        connect(m_pasteAction, &QAction::triggered, m_textEditor, &TextEditor::paste);
-    } else {
-        // Create disabled actions if no text editor
-        m_undoAction = editMenu->addAction("&Undo");
-        m_undoAction->setShortcut(QKeySequence::Undo);
-        m_undoAction->setEnabled(false);
-        
-        m_redoAction = editMenu->addAction("&Redo");
-        m_redoAction->setShortcut(QKeySequence::Redo);
-        m_redoAction->setEnabled(false);
-        
-        editMenu->addSeparator();
-        
-        m_cutAction = editMenu->addAction("Cu&t");
-        m_cutAction->setShortcut(QKeySequence::Cut);
-        m_cutAction->setEnabled(false);
-        
-        m_copyAction = editMenu->addAction("&Copy");
-        m_copyAction->setShortcut(QKeySequence::Copy);
-        m_copyAction->setEnabled(false);
-        
-        m_pasteAction = editMenu->addAction("&Paste");
-        m_pasteAction->setShortcut(QKeySequence::Paste);
-        m_pasteAction->setEnabled(false);
-    }
-
-    // View menu
-    QMenu *viewMenu = m_menuBar->addMenu("&View");
-    QAction *toggleSidebarAction = viewMenu->addAction("Toggle &Sidebar");
-    connect(toggleSidebarAction, &QAction::triggered, this, &MainView::toggleSidebar);
-    
-    // Add menu bar to layout
-    m_mainLayout->setMenuBar(m_menuBar);
-}
-
-void MainView::setupToolbar()
-{
-    m_toolbar = new QToolBar(this);
+    // ── Toolbar widget setup ─────────────────────────────────────────────────
+    m_toolbar = QuteNote::makeOwned<QToolBar>(this);
     m_toolbar->setMovable(false);
     m_toolbar->setIconSize(QSize(32, 32));  // Match TextEditor toolbar size
     // Make toolbar content-width driven so the scroll area can show overflow
@@ -537,7 +444,7 @@ void MainView::setupToolbar()
     if (sidebarIcon.isNull()) {
         sidebarIcon = style()->standardIcon(QStyle::SP_TitleBarNormalButton);
     }
-    m_toggleSidebarBtn = new QToolButton(this);
+    m_toggleSidebarBtn = QuteNote::makeOwned<QToolButton>(this);
     m_toggleSidebarBtn->setCheckable(true);
     m_toggleSidebarBtn->setChecked(true);
     m_toggleSidebarBtn->setIcon(sidebarIcon);
@@ -556,101 +463,66 @@ void MainView::setupToolbar()
     m_toolbar->addWidget(separator1);
     
     // Set custom cute icons for actions with fallback to standard icons
-    QIcon newIcon(":/resources/icons/custom/new-file.svg");
-    if (newIcon.isNull()) {
-        newIcon = style()->standardIcon(QStyle::SP_FileIcon);
-    }
-    m_newAction->setIcon(newIcon);
+    m_newAction->setIcon(loadThemedIcon(":/resources/icons/custom/new-file.svg", QStyle::SP_FileIcon));
     
-    QIcon openIcon(":/resources/icons/custom/file.svg");
-    if (openIcon.isNull()) {
-        openIcon = style()->standardIcon(QStyle::SP_DialogOpenButton);
-    }
-    m_openAction->setIcon(openIcon);
+    m_openAction->setIcon(loadThemedIcon(":/resources/icons/custom/file.svg", QStyle::SP_DialogOpenButton));
     
-    QIcon saveIcon(":/resources/icons/custom/save.svg");
-    if (saveIcon.isNull()) {
-        saveIcon = style()->standardIcon(QStyle::SP_DialogSaveButton);
-    }
-    m_saveAction->setIcon(saveIcon);
+    m_saveAction->setIcon(loadThemedIcon(":/resources/icons/custom/save.svg", QStyle::SP_DialogSaveButton));
     
-    QIcon undoIcon(":/resources/icons/custom/undo.svg");
-    if (undoIcon.isNull()) {
-        undoIcon = style()->standardIcon(QStyle::SP_ArrowBack);
-    }
-    m_undoAction->setIcon(undoIcon);
-    connect(m_undoAction, &QAction::triggered, this, [this]() {
+    m_undoAction->setIcon(loadThemedIcon(":/resources/icons/custom/undo.svg", QStyle::SP_ArrowBack));
+    connect(m_undoAction.get(), &QAction::triggered, this, [this]() {
         updateStatusBar("Undoing last action...", 1000);
         if (m_textEditor) m_textEditor->undo();
     });
     
-    QIcon redoIcon(":/resources/icons/custom/redo.svg");
-    if (redoIcon.isNull()) {
-        redoIcon = style()->standardIcon(QStyle::SP_ArrowForward);
-    }
-    m_redoAction->setIcon(redoIcon);
-    connect(m_redoAction, &QAction::triggered, this, [this]() {
+    m_redoAction->setIcon(loadThemedIcon(":/resources/icons/custom/redo.svg", QStyle::SP_ArrowForward));
+    connect(m_redoAction.get(), &QAction::triggered, this, [this]() {
         updateStatusBar("Redoing last action...", 1000);
         if (m_textEditor) m_textEditor->redo();
     });
     
-    QIcon cutIcon(":/resources/icons/custom/cut.svg");
-    if (cutIcon.isNull()) {
-        cutIcon = style()->standardIcon(QStyle::SP_DialogCancelButton);
-    }
-    m_cutAction->setIcon(cutIcon);
-    connect(m_cutAction, &QAction::triggered, this, [this]() {
+    m_cutAction->setIcon(loadThemedIcon(":/resources/icons/custom/cut.svg", QStyle::SP_DialogCancelButton));
+    connect(m_cutAction.get(), &QAction::triggered, this, [this]() {
         updateStatusBar("Cutting selected text...", 1000);
         if (m_textEditor) m_textEditor->cut();
     });
     
-    QIcon copyIcon(":/resources/icons/custom/copy.svg");
-    if (copyIcon.isNull()) {
-        copyIcon = style()->standardIcon(QStyle::SP_CommandLink);
-    }
-    m_copyAction->setIcon(copyIcon);
-    connect(m_copyAction, &QAction::triggered, this, [this]() {
+    m_copyAction->setIcon(loadThemedIcon(":/resources/icons/custom/copy.svg", QStyle::SP_CommandLink));
+    connect(m_copyAction.get(), &QAction::triggered, this, [this]() {
         updateStatusBar("Copying selected text...", 1000);
         if (m_textEditor) m_textEditor->copy();
     });
     
-    QIcon pasteIcon(":/resources/icons/custom/paste.svg");
-    if (pasteIcon.isNull()) {
-        pasteIcon = style()->standardIcon(QStyle::SP_DialogApplyButton);
-    }
-    m_pasteAction->setIcon(pasteIcon);
-    connect(m_pasteAction, &QAction::triggered, this, [this]() {
+    m_pasteAction->setIcon(loadThemedIcon(":/resources/icons/custom/paste.svg", QStyle::SP_DialogApplyButton));
+    connect(m_pasteAction.get(), &QAction::triggered, this, [this]() {
         updateStatusBar("Pasting clipboard content...", 1000);
         if (m_textEditor) m_textEditor->paste();
     });
     
     // Add main actions with reduced spacing
-    m_toolbar->addAction(m_newAction);
-    m_toolbar->addAction(m_openAction);
-    m_toolbar->addAction(m_saveAction);
+    m_toolbar->addAction(m_newAction.get());
+    m_toolbar->addAction(m_openAction.get());
+    m_toolbar->addAction(m_saveAction.get());
     
     // Add separator with reduced width
     QWidget *separator2 = new QWidget();
     separator2->setFixedWidth(6);
     m_toolbar->addWidget(separator2);
     
-    m_toolbar->addAction(m_undoAction);
-    m_toolbar->addAction(m_redoAction);
+    m_toolbar->addAction(m_undoAction.get());
+    m_toolbar->addAction(m_redoAction.get());
     
     // Add separator with reduced width
     QWidget *separator3 = new QWidget();
     separator3->setFixedWidth(6);
     m_toolbar->addWidget(separator3);
     
-    m_toolbar->addAction(m_cutAction);
-    m_toolbar->addAction(m_copyAction);
-    m_toolbar->addAction(m_pasteAction);
+    m_toolbar->addAction(m_cutAction.get());
+    m_toolbar->addAction(m_copyAction.get());
+    m_toolbar->addAction(m_pasteAction.get());
 
     // Finalize toolbar sizing so the scroll area will know when content overflows
     recomputeToolbarContentWidth();
-    // Recompute when the main window or style changes
-    connect(qApp, &QApplication::paletteChanged, this, &MainView::recomputeToolbarContentWidth);
-    connect(qApp, &QApplication::fontChanged, this, &MainView::recomputeToolbarContentWidth);
 
     // Apply toolbar-specific theme styles (height, checked color)
     applyToolbarStyle();
@@ -669,17 +541,17 @@ void MainView::setupToolbar()
     }
     
     // Connect the toggle button
-    connect(m_toggleSidebarBtn, &QPushButton::toggled, this, &MainView::toggleSidebar);
+    connect(m_toggleSidebarBtn.get(), &QPushButton::toggled, this, &MainView::toggleSidebar);
 
     // Wrap toolbar in a scroll area to mirror TextEditor overflow behaviour
     if (!m_toolbarArea) {
-        m_toolbarArea = new QScrollArea(this);
+        m_toolbarArea = QuteNote::makeOwned<QScrollArea>(this);
         m_toolbarArea->setFrameShape(QFrame::NoFrame);
         m_toolbarArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         m_toolbarArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         m_toolbarArea->setWidgetResizable(false);
         m_toolbarArea->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        m_toolbarArea->setWidget(m_toolbar);
+        m_toolbarArea->setWidget(m_toolbar.get());
         m_toolbarArea->viewport()->setAttribute(Qt::WA_AcceptTouchEvents, true);
         QScroller::grabGesture(m_toolbarArea->viewport(), QScroller::TouchGesture);
 
@@ -690,7 +562,7 @@ void MainView::setupToolbar()
         const int toolbarVPadding = 8;
         // Use touchTarget to ensure touch-friendly height; mirror applyToolbarStyle()
         int toolbarFixedH = qMax(toolBtnHeight, theme.metrics.touchTarget) + toolbarVPadding;
-        const int scrollBarExtent = style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, m_toolbarArea);
+        const int scrollBarExtent = style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, m_toolbarArea.get());
         const int extraPad = 2;
             // Reserve exact vertical space equal to toolbar + scrollbar to prevent jiggle
             m_toolbarArea->setFixedHeight(toolbarFixedH + scrollBarExtent + extraPad);
@@ -706,8 +578,8 @@ void MainView::setupToolbar()
 
     // Create an affixed settings button on the far right
     if (!m_settingsBtn && m_settingsAction) {
-        m_settingsBtn = new QToolButton(this);
-        m_settingsBtn->setDefaultAction(m_settingsAction);
+        m_settingsBtn = QuteNote::makeOwned<QToolButton>(this);
+        m_settingsBtn->setDefaultAction(m_settingsAction.get());
         m_settingsBtn->setAutoRaise(true);
         m_settingsBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
         m_settingsBtn->setFixedSize(44, 44);
@@ -718,17 +590,17 @@ void MainView::setupToolbar()
 
     // Create overscroll indicators similar to TextEditor
     if (!m_overscrollLeftWidget) {
-        m_overscrollLeftWidget = new QToolButton(this);
+        m_overscrollLeftWidget = QuteNote::makeOwned<QToolButton>(this);
         m_overscrollLeftWidget->setIcon(QIcon(":/resources/icons/custom/chevrons-left.svg"));
         m_overscrollLeftWidget->setVisible(false);
-        connect(m_overscrollLeftWidget, &QToolButton::clicked, this, &MainView::scrollToolbarLeft);
+        connect(m_overscrollLeftWidget.get(), &QToolButton::clicked, this, &MainView::scrollToolbarLeft);
     }
 
     if (!m_overscrollRightWidget) {
-        m_overscrollRightWidget = new QToolButton(this);
+        m_overscrollRightWidget = QuteNote::makeOwned<QToolButton>(this);
         m_overscrollRightWidget->setIcon(QIcon(":/resources/icons/custom/chevrons-right.svg"));
         m_overscrollRightWidget->setVisible(false);
-        connect(m_overscrollRightWidget, &QToolButton::clicked, this, &MainView::scrollToolbarRight);
+        connect(m_overscrollRightWidget.get(), &QToolButton::clicked, this, &MainView::scrollToolbarRight);
     }
 
     // Ensure toggle/settings and overscroll widgets honor styled backgrounds
@@ -754,27 +626,28 @@ void MainView::setupToolbar()
     connect(ThemeManager::instance(), &ThemeManager::themeChanged, this, &MainView::applyOverlayStyleToMain);
 
     // Create a single row container that holds: left-fixed (toggle + title), scrollable toolbar, and fixed settings button
-    m_toolbarRow = new QWidget(this);
+    m_toolbarRow = QuteNote::makeOwned<QWidget>(this);
     m_toolbarRow->setObjectName("ToolbarRow");
     m_toolbarRow->setAttribute(Qt::WA_StyledBackground, true);
     m_toolbarRow->setAutoFillBackground(true);
-    QHBoxLayout *rowLayout = new QHBoxLayout(m_toolbarRow);
+    QHBoxLayout *rowLayout = new QHBoxLayout(m_toolbarRow.get());
     rowLayout->setContentsMargins(0, 0, 0, 0);
     rowLayout->setSpacing(0);
 
     // Left fixed area (toggle + title)
-    m_toolbarLeftFixed = new QWidget(m_toolbarRow);
+    m_toolbarLeftFixed = QuteNote::makeOwned<QWidget>(m_toolbarRow.get());
     m_toolbarLeftFixed->setObjectName("ToolbarLeftFixed");
     m_toolbarLeftFixed->setAttribute(Qt::WA_StyledBackground, true);
     m_toolbarLeftFixed->setAutoFillBackground(true);
-    QHBoxLayout *leftLayout = new QHBoxLayout(m_toolbarLeftFixed);
+    QHBoxLayout *leftLayout = new QHBoxLayout(m_toolbarLeftFixed.get());
     leftLayout->setContentsMargins(0, 0, 0, 0);
     leftLayout->setSpacing(4);
-    // Align children to the top so toggle and title line up with toolbar
+    // Align children to the top so title lines up with toolbar
     leftLayout->setAlignment(Qt::AlignTop);
-    leftLayout->addWidget(m_toggleSidebarBtn);
+    // m_toggleSidebarBtn replaced by left panel edge handle — hide it
+    m_toggleSidebarBtn->setVisible(false);
     // Title widget will be inserted into m_toolbarLeftFixed by setTitleWidget
-    rowLayout->addWidget(m_toolbarLeftFixed);
+    rowLayout->addWidget(m_toolbarLeftFixed.get());
 
     // Scrollable toolbar area in the center
     if (m_toolbarArea) {
@@ -785,15 +658,15 @@ void MainView::setupToolbar()
             m_toolbarArea->viewport()->setAutoFillBackground(true);
         }
     }
-    rowLayout->addWidget(m_toolbarArea, 1);
+    rowLayout->addWidget(m_toolbarArea.get(), 1);
 
-    // Fixed settings button on the right — align to top so it lines up with toolbar
+    // Fixed settings button replaced by right panel edge handle — hide it
     if (m_settingsBtn) {
-        rowLayout->addWidget(m_settingsBtn, 0, Qt::AlignTop);
+        m_settingsBtn->setVisible(false);
     }
 
     // Insert combined toolbar row at the top of the main layout
-    m_mainLayout->insertWidget(0, m_toolbarRow);
+    m_mainLayout->insertWidget(0, m_toolbarRow.get());
 }
 
 void MainView::setTitleWidget(QWidget *widget)
@@ -809,14 +682,14 @@ void MainView::setTitleWidget(QWidget *widget)
         // Remove any existing child title widgets
         QList<QWidget*> children = m_toolbarLeftFixed->findChildren<QWidget*>();
         for (QWidget* c : children) {
-            if (c != m_toggleSidebarBtn) {
+            if (c != m_toggleSidebarBtn.get()) {
                 c->deleteLater();
             }
         }
     }
 
     // Insert widget into left fixed area (next to toggle)
-    widget->setParent(m_toolbarLeftFixed ? m_toolbarLeftFixed : m_toolbarRow);
+    widget->setParent(m_toolbarLeftFixed ? m_toolbarLeftFixed.get() : m_toolbarRow.get());
     widget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
     // Give a little extra vertical room on phone (Android) to avoid cramped titlebar
     int extraPhonePad = 0;
@@ -900,64 +773,51 @@ void MainView::setRootDirectory(const QString &path)
     }
 }
 
+// ── Panel System ───────────────────────────────────────────────────────────
+
+bool MainView::isPanelOpen(PanelManager::PanelSide side) const
+{
+    return m_panelManager ? m_panelManager->isPanelOpen(side) : false;
+}
+
 void MainView::toggleSidebar(bool visible)
 {
-    if (m_sidebarVisible == visible) {
-        return; // No change needed
+    // Backward-compatible wrapper — delegates to the unified panel system
+    togglePanel(PanelManager::PanelSide::Left, visible);
+}
+
+void MainView::togglePanel(PanelManager::PanelSide side, bool open)
+{
+    if (m_panelManager) m_panelManager->togglePanel(side, open);
+}
+
+// ── Icon helper ────────────────────────────────────────────────────────────
+
+QIcon MainView::loadThemedIcon(const QString &resourcePath, QStyle::StandardPixmap fallback) const
+{
+    QIcon icon(resourcePath);
+    if (icon.isNull()) {
+        icon = style()->standardIcon(fallback);
     }
-    
-    // Any change via this function (especially from UI buttons/actions) sets user toggle.
-    // The resize event temporarily resets it when acting on behalf of the system.
-    m_userToggledSidebar = true;
-    m_sidebarVisible = visible;
-    
-    updateStatusBar(visible ? "Showing sidebar..." : "Hiding sidebar...", 1000);
-    
-    if (!m_splitter || !m_sidebar || !m_textEditor) {
-        return; // Safety check
-    }
-    
-    if (visible) {
-        // Show sidebar - restore its visibility
-        m_sidebar->show();
-        
-        // Restore previous sidebar width, or use default
-        int sidebarWidth = (m_sidebarWidth > 0) ? m_sidebarWidth : 250;
-        int totalWidth = m_splitter->width();
-        int editorWidth = totalWidth - sidebarWidth;
-        
-        // Ensure positive widths
-        if (editorWidth < 100) {
-            editorWidth = 100;
-            sidebarWidth = totalWidth - editorWidth;
-        }
-        
-        m_splitter->setSizes({sidebarWidth, editorWidth});
-    } else {
-        // Save current sidebar width before hiding
-        QList<int> sizes = m_splitter->sizes();
-        if (sizes.size() >= 2 && sizes[0] > 0) {
-            m_sidebarWidth = sizes[0];
-        }
-        
-        // Hide sidebar and give all space to editor
-        m_sidebar->hide();
-        
-        // Force the splitter to give all space to the text editor
-        int totalWidth = m_splitter->width();
-        m_splitter->setSizes({0, totalWidth});
-    }
-    
-    // Update toggle button state and icon if it exists
-    if (m_toggleSidebarBtn) {
-        m_toggleSidebarBtn->setChecked(visible);
-        // Use chevrons-left when sidebar is visible (to hide it), chevrons-right when hidden (to show it)
-        QIcon toggleIcon(visible ? ":/resources/icons/custom/chevrons-left.svg" 
-                                 : ":/resources/icons/custom/chevrons-right.svg");
-        if (!toggleIcon.isNull()) {
-            m_toggleSidebarBtn->setIcon(toggleIcon);
-        }
-    }
+    return icon;
+}
+
+// ── Settings callbacks ────────────────────────────────────────────────────
+
+void MainView::onSettingsChanged()
+{
+    // Save & Apply — persist settings, apply notes directory, close panel
+    QSettings& settings = UIUtils::quteSettings();
+    QString notesDir = settings.value("notesDirectory",
+        UIUtils::defaultNotesDirectory()).toString();
+    setRootDirectory(notesDir);
+    togglePanel(PanelSide::Right, false);
+}
+
+void MainView::onSettingsBackToMain()
+{
+    // Back to Main — just close the settings panel
+    togglePanel(PanelSide::Right, false);
 }
 
 void MainView::recomputeToolbarContentWidth()
@@ -1071,7 +931,7 @@ void MainView::applyToolbarStyle()
 
     // Update scroll area scrollbar style to remain theme-aware
     if (m_toolbarArea) {
-        const int scrollBarExtent = style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, m_toolbarArea);
+        const int scrollBarExtent = style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, m_toolbarArea.get());
         const int extraPad = 2;
         // Height must reserve space for the horizontal scrollbar — visuals are styled globally
         m_toolbarArea->setFixedHeight(m_toolbar->height() + scrollBarExtent + extraPad);
@@ -1127,40 +987,39 @@ void MainView::updateOverscrollIndicators()
 
 void MainView::scrollToolbarLeft()
 {
-#ifdef Q_OS_ANDROID
-    if (!m_toolbarArea) return;
-    QScroller* scroller = QScroller::scroller(m_toolbarArea->viewport());
-    if (scroller) {
-        QPointF currentPos = scroller->finalPosition();
-        QPointF newPos(currentPos.x() - 120, currentPos.y());
-        scroller->scrollTo(newPos, 250);
-        QTimer::singleShot(260, this, [this]() { updateOverscrollIndicators(); });
-    }
-#endif
+    scrollToolbarBy(-120);
 }
 
 void MainView::scrollToolbarRight()
 {
+    scrollToolbarBy(120);
+}
+
+void MainView::scrollToolbarBy(int delta)
+{
 #ifdef Q_OS_ANDROID
     if (!m_toolbarArea || !m_toolbar) return;
     QScroller* scroller = QScroller::scroller(m_toolbarArea->viewport());
-    if (scroller) {
-        QPointF currentPos = scroller->finalPosition();
-        // compute content width
-        int contentWidth = 0;
-        for (QAction* action : m_toolbar->actions()) {
-            QWidget* w = m_toolbar->widgetForAction(action);
-            if (w) contentWidth += w->width() + 2;
-            else contentWidth += 8;
-        }
-        contentWidth += 16;
-        QRect viewportRect = m_toolbar->rect();
-        int maxScroll = qMax(0, contentWidth - viewportRect.width());
-        int targetX = qMin(static_cast<int>(currentPos.x() + 120), maxScroll);
-        QPointF newPos(targetX, currentPos.y());
-        scroller->scrollTo(newPos, 250);
-        QTimer::singleShot(260, this, [this]() { updateOverscrollIndicators(); });
+    if (!scroller) return;
+
+    QPointF currentPos = scroller->finalPosition();
+    int maxScroll = 0;
+
+    // Compute content width for clamping
+    int contentWidth = 0;
+    for (QAction* action : m_toolbar->actions()) {
+        QWidget* w = m_toolbar->widgetForAction(action);
+        if (w) contentWidth += w->width() + 2;
+        else contentWidth += 8;
     }
+    contentWidth += 16;
+    QRect viewportRect = m_toolbar->rect();
+    maxScroll = qMax(0, contentWidth - viewportRect.width());
+
+    int targetX = qBound(0, static_cast<int>(currentPos.x() + delta), maxScroll);
+    QPointF newPos(targetX, currentPos.y());
+    scroller->scrollTo(newPos, 250);
+    QTimer::singleShot(260, this, [this]() { updateOverscrollIndicators(); });
 #endif
 }
 
@@ -1338,7 +1197,7 @@ void MainView::newFile()
 
 void MainView::showSettings()
 {
-    emit settingsRequested();
+    togglePanel(PanelSide::Right, true);
 }
 
 void MainView::onFileSelected(const QString &filePath)

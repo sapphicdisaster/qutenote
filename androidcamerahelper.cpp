@@ -1,15 +1,10 @@
 #include "androidcamerahelper.h"
 #include <QDebug>
+#ifdef Q_OS_ANDROID
 #include <jni.h>
 #include <qcoreapplication_platform.h>
-#include <qobjectdefs.h>
-#include <qtmetamacros.h>
-#include <qobject.h>
-
-#ifdef Q_OS_ANDROID
 #include <QJniObject>
 #include <QJniEnvironment>
-
 #include <QCoreApplication>
 
 extern "C" {

@@ -10,6 +10,7 @@
 #include <QPointer>
 #include <QPinchGesture>
 #include <QEasingCurve>
+#include "smartpointers.h"
 #include "physicsengine.h"
 
 class TouchInteraction : public QObject
@@ -98,7 +99,7 @@ private:
     QEasingCurve m_bounceCurve;
 
     // Physics engine
-    PhysicsEngine *m_physicsEngine;
+    QuteNote::OwnedPtr<PhysicsEngine> m_physicsEngine;
     bool m_isPhysicsActive;
     QPointer<QTimer> m_physicsTimer;
 

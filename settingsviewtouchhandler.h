@@ -2,13 +2,10 @@
 #define SETTINGSVIEWTOUCHHANDLER_H
 
 #include "touchinteractionhandler.h"
-#include <QScroller>
-#include <QPinchGesture>
-#include <QSwipeGesture>
+#include "smartpointers.h"
 #include <QScrollArea>
-#include <QTouchEvent>
 
-// Forward declarations
+class QScroller;
 class SettingsView;
 class TouchInteraction;
 
@@ -18,9 +15,10 @@ class SettingsViewTouchHandler : public TouchInteractionHandler {
 public:
     explicit SettingsViewTouchHandler(SettingsView* settingsView);
     ~SettingsViewTouchHandler() override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
     
     // Access to touch interaction for SettingsView
-    TouchInteraction* touchInteraction() const { return m_touchInteraction; }
+    TouchInteraction* touchInteraction() const { return m_touchInteraction.get(); }
     QScrollArea* scrollArea() const { return m_scrollArea; }
 
 Q_SIGNALS:
@@ -39,8 +37,8 @@ private:
     
     SettingsView* m_settingsView;
     QScrollArea* m_scrollArea;
-    TouchInteraction* m_touchInteraction;
-    QScroller* m_scroller;
+    QuteNote::OwnedPtr<TouchInteraction> m_touchInteraction;
+    QScroller* m_scroller = nullptr;
 };
 
 #endif // SETTINGSVIEWTOUCHHANDLER_H

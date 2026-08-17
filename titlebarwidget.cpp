@@ -7,25 +7,30 @@
 #include <QInputDialog>
 
 TitleBarWidget::TitleBarWidget(QWidget *parent)
-    : QWidget(parent), m_edit(new QLineEdit(this)), m_label(new QLabel(this)), m_saveButton(new QPushButton("Save", this)), m_layout(new QHBoxLayout(this)), m_themeManager(nullptr)
+    : QWidget(parent)
+    , m_edit(QuteNote::makeOwned<QLineEdit>(this))
+    , m_label(QuteNote::makeOwned<QLabel>(this))
+    , m_saveButton(QuteNote::makeOwned<QPushButton>("Save", this))
+    , m_layout(QuteNote::makeOwned<QHBoxLayout>(this))
+    , m_themeManager(nullptr)
 {
     // Allow application stylesheet to paint the background/border for this widget
     setAttribute(Qt::WA_StyledBackground, true);
     setAutoFillBackground(true);
     // Add small margins to prevent text from clipping border
     m_layout->setContentsMargins(4, 0, 4, 0);
-    m_layout->addWidget(m_label);
-    m_layout->addWidget(m_edit);
-    m_layout->addWidget(m_saveButton);
+    m_layout->addWidget(m_label.get());
+    m_layout->addWidget(m_edit.get());
+    m_layout->addWidget(m_saveButton.get());
     m_edit->hide();
     m_saveButton->hide();
     m_label->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     // Align the label text to the left
     m_label->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     m_edit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    setLayout(m_layout);
-    connect(m_edit, &QLineEdit::editingFinished, this, &TitleBarWidget::finishEditing);
-    connect(m_saveButton, &QPushButton::clicked, this, &TitleBarWidget::onSaveClicked);
+    setLayout(m_layout.get());
+    connect(m_edit.get(), &QLineEdit::editingFinished, this, &TitleBarWidget::finishEditing);
+    connect(m_saveButton.get(), &QPushButton::clicked, this, &TitleBarWidget::onSaveClicked);
     m_label->setCursor(Qt::IBeamCursor);
 
     // Ensure the titlebar has a sensible width based on the theme's touch target

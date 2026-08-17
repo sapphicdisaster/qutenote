@@ -19,8 +19,8 @@ if(NOT ANDROID)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
 endif()
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Core Gui LinguistTools Concurrent)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Core Gui LinguistTools Concurrent)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Core Gui LinguistTools)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Core Gui LinguistTools)
 
 qt_policy(SET QTP0002 NEW)
 
@@ -50,12 +50,10 @@ set(PROJECT_SOURCES
         main.cpp
         mainwindow.cpp
         mainwindow.h
-        mainwindow.ui
     titlebarwidget.cpp
     titlebarwidget.h
     filebrowser.cpp
     filebrowser.h
-    filebrowser_touch.cpp
     filebrowsertreewidget.cpp
     filebrowsertreewidget.h
     filebrowsertouchhandler.cpp
@@ -70,14 +68,8 @@ set(PROJECT_SOURCES
         texteditortouchhandler.h
         mainview.cpp
         mainview.h
-        documentlist.cpp
-        documentlist.h
-        documentmodel.cpp
-        documentmodel.h
-        lazydocumentmodel.cpp
-        lazydocumentmodel.h
-        filewatcherguard.cpp
-        filewatcherguard.h
+        panelmanager.cpp
+        panelmanager.h
         componentbase.cpp
         componentbase.h
         uiutils.cpp
@@ -123,7 +115,7 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
             QT_ANDROID_PACKAGE_NAME "com.angel.qutenote"
             CXX_STANDARD 17
             CXX_STANDARD_REQUIRED ON
-            QT_ANDROID_EXTRA_LIBS "${ANDROID_NDK}/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so"
+            QT_ANDROID_EXTRA_LIBS "${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so"
         )
         
         # Fix duplicate classes issue (packagingOptions are now permanently defined inside android/build.gradle.in itself)
@@ -160,7 +152,7 @@ else()
     qt5_create_translation(QM_FILES ${CMAKE_SOURCE_DIR} ${TS_FILES})
 endif()
 
-target_link_libraries(QuteNote PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Concurrent)
+target_link_libraries(QuteNote PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
 # If you are developing for iOS or macOS you should consider setting an

@@ -616,6 +616,9 @@ void TextEditor::resizeEvent(QResizeEvent *event)
     // Call the base class implementation first
     // Normal Qt layout mechanisms will handle the resizing of the child text editor
     QWidget::resizeEvent(event);
+
+    // Keep toolbar filling the full viewport width after resize
+    updateToolbarContentWidth();
 }
 
 void TextEditor::showEvent(QShowEvent *event)
@@ -645,21 +648,20 @@ void TextEditor::setupUI()
 
     // Create touch-optimized toolbar
     m_toolbar = QuteNote::makeOwned<QToolBar>(this);
+    m_toolbar->setObjectName("EditorToolbar");
     #ifndef Q_OS_ANDROID
     m_toolbar->setWindowTitle("Format");
     #endif
     m_toolbar->setToolButtonStyle(Qt::ToolButtonIconOnly);
     
-    // Set icon size for better visibility
-    m_toolbar->setIconSize(QSize(32, 32)); // Larger icons for better visibility
+    // Set icon size from theme metrics for consistent sizing
+    const Theme initTheme = ThemeManager::instance()->currentTheme();
+    m_toolbar->setIconSize(QSize(initTheme.metrics.iconSize, initTheme.metrics.iconSize));
     
-    // Toolbar sizing (content-sized width; height fixed)
-    m_toolbar->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
-    // Ensure a stable, fixed toolbar height to avoid vertical bounce
-    const int toolBtnHeight = 48;            // touch target for buttons
-    const int toolbarVPadding = 12;           // extra vertical padding to lock height (increased from 8)
-    const int toolbarFixedH = toolBtnHeight + toolbarVPadding;
-    m_toolbar->setFixedHeight(toolbarFixedH);
+    // Toolbar sizing (content-sized min width but expandable; min height)
+    m_toolbar->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    const int toolbarMinH = initTheme.metrics.touchTarget + 12;
+    m_toolbar->setMinimumHeight(toolbarMinH);
     
     // Ensure toolbar properly handles touch events
     m_toolbar->setAttribute(Qt::WA_AcceptTouchEvents, true);
@@ -679,20 +681,11 @@ void TextEditor::setupUI()
     // Wrap toolbar in a horizontal scroll area for proper overflow scrolling
     m_toolbarArea = QuteNote::makeOwned<QScrollArea>(this);
     m_toolbarArea->setFrameShape(QFrame::NoFrame);
-    m_toolbarArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_toolbarArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_toolbarArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_toolbarArea->setWidgetResizable(false); // Keep content width; allow horizontal scroll
+    m_toolbarArea->setWidgetResizable(true);
     m_toolbarArea->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    // Reserve exact space for the horizontal scrollbar under the toolbar, so there's no vertical scroll of buttons
-    {
-        const int scrollBarExtent = style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, m_toolbarArea.get());
-        const int extraPad = 4;  // match FileBrowser padding; kills 1-2px jiggle on some styles (increased from 2)
-        int effectiveToolbarH = m_toolbar->height();
-        if (effectiveToolbarH <= 0) { effectiveToolbarH = toolbarFixedH;
-}
-        // Reserve exact vertical space equal to the toolbar's actual height to avoid vertical bounce
-        m_toolbarArea->setFixedHeight(effectiveToolbarH + scrollBarExtent + extraPad);
-    }
+    m_toolbarArea->setMinimumHeight(toolbarMinH);
     m_toolbarArea->setWidget(m_toolbar.get());
     updateToolbarContentWidth();
     QTimer::singleShot(0, this, &TextEditor::updateToolbarContentWidth);
@@ -733,12 +726,12 @@ void TextEditor::setupUI()
     QVBoxLayout *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);  // No margins for full expansion
     layout->setSpacing(0);  // No spacing between toolbar and editor
-    layout->addWidget(m_toolbarArea.get());
     layout->addWidget(m_editorContainer.get());
+    layout->addWidget(m_toolbarArea.get());
     
     // Set stretch factors for flexbox-like behavior
-    layout->setStretchFactor(m_toolbarArea.get(), 0);  // Toolbar area doesn't stretch
     layout->setStretchFactor(m_editorContainer.get(), 1);   // Editor container expands to fill available space
+    layout->setStretchFactor(m_toolbarArea.get(), 0);  // Toolbar area doesn't stretch
     
     // Ensure the text editor widget expands to fill available space
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -754,7 +747,7 @@ void TextEditor::setupToolbar()
     m_fontCombo->setWritingSystem(QFontDatabase::Latin);
     Theme theme = ThemeManager::instance()->currentTheme();
     m_fontCombo->setFixedHeight(theme.metrics.touchTarget);
-    m_fontCombo->setMaximumWidth(120);  // Increased width for better visibility
+    m_fontCombo->setMaximumWidth(theme.metrics.touchTarget * 3);  // scale with zoom, enough for full font names
     m_fontCombo->setFont(theme.headerFont);
     // Styling for the font combo is provided centrally by ThemeManager.
     
@@ -780,7 +773,7 @@ void TextEditor::setupToolbar()
     m_sizeCombo->setMinimumContentsLength(3);
     m_sizeCombo->setMaxVisibleItems(12);  // More visible items
     m_sizeCombo->setFixedHeight(theme.metrics.touchTarget);
-    m_sizeCombo->setMaximumWidth(80);     // Increased width for better visibility
+    m_sizeCombo->setMaximumWidth(theme.metrics.touchTarget * 5 / 3);     // scale with zoom
     m_sizeCombo->setFont(theme.headerFont);
     // Styling for the size combo is provided centrally by ThemeManager.
     
@@ -803,7 +796,7 @@ void TextEditor::setupToolbar()
     }
     
     // Set sizing directly on the combo box
-    m_sizeCombo->setMinimumWidth(80);
+    m_sizeCombo->setMinimumWidth(theme.metrics.touchTarget * 5 / 3);
 #ifdef Q_OS_ANDROID
     m_sizeCombo->setAttribute(Qt::WA_AcceptTouchEvents, true);
 #endif
@@ -827,20 +820,7 @@ void TextEditor::setupToolbar()
     // Ensure each button is properly configured for touch events
     QList<QAction*> actions;
     actions << m_boldAction.get() << m_italicAction.get() << m_underlineAction.get();
-    
-    for (QAction* action : actions) {
-        m_toolbar->addAction(action);
-        // Ensure the action's associated button is touch-friendly
-        QWidget* widget = m_toolbar->widgetForAction(action);
-        if (QToolButton* button = qobject_cast<QToolButton*>(widget)) {
-            button->setMinimumSize(theme.metrics.touchTarget, theme.metrics.touchTarget);
-            button->setIconSize(QSize(theme.metrics.iconSize, theme.metrics.iconSize));
-            #ifdef Q_OS_ANDROID
-            button->setAttribute(Qt::WA_AcceptTouchEvents, true);
-            button->setFocusPolicy(Qt::NoFocus);
-#endif
-        }
-    }
+    addToolbarActions(actions, theme.metrics);
     
     m_toolbar->addSeparator();
     
@@ -848,60 +828,21 @@ void TextEditor::setupToolbar()
     actions.clear();
     actions << m_alignLeftAction.get() << m_alignCenterAction.get() 
             << m_alignRightAction.get() << m_alignJustifyAction.get();
-    
-    for (QAction* action : actions) {
-        m_toolbar->addAction(action);
-        // Ensure the action's associated button is touch-friendly
-        QWidget* widget = m_toolbar->widgetForAction(action);
-        if (QToolButton* button = qobject_cast<QToolButton*>(widget)) {
-            button->setMinimumSize(theme.metrics.touchTarget, theme.metrics.touchTarget);
-            button->setIconSize(QSize(theme.metrics.iconSize, theme.metrics.iconSize));
-            #ifdef Q_OS_ANDROID
-            button->setAttribute(Qt::WA_AcceptTouchEvents, true);
-            button->setFocusPolicy(Qt::NoFocus);
-#endif
-        }
-    }
+    addToolbarActions(actions, theme.metrics);
     
     m_toolbar->addSeparator();
     
     // Color actions
     actions.clear();
     actions << m_textColorAction.get() << m_bgColorAction.get();
-    
-    for (QAction* action : actions) {
-        m_toolbar->addAction(action);
-        // Ensure the action's associated button is touch-friendly
-        QWidget* widget = m_toolbar->widgetForAction(action);
-        if (QToolButton* button = qobject_cast<QToolButton*>(widget)) {
-            button->setMinimumSize(theme.metrics.touchTarget, theme.metrics.touchTarget);
-            button->setIconSize(QSize(theme.metrics.iconSize, theme.metrics.iconSize));
-            #ifdef Q_OS_ANDROID
-            button->setAttribute(Qt::WA_AcceptTouchEvents, true);
-            button->setFocusPolicy(Qt::NoFocus);
-#endif
-        }
-    }
+    addToolbarActions(actions, theme.metrics);
     
     m_toolbar->addSeparator();
     
     // List actions
     actions.clear();
     actions << m_bulletListAction.get() << m_numberedListAction.get();
-    
-    for (QAction* action : actions) {
-        m_toolbar->addAction(action);
-        // Ensure the action's associated button is touch-friendly
-        QWidget* widget = m_toolbar->widgetForAction(action);
-        if (QToolButton* button = qobject_cast<QToolButton*>(widget)) {
-            button->setMinimumSize(theme.metrics.touchTarget, theme.metrics.touchTarget);
-            button->setIconSize(QSize(theme.metrics.iconSize, theme.metrics.iconSize));
-            #ifdef Q_OS_ANDROID
-            button->setAttribute(Qt::WA_AcceptTouchEvents, true);
-            button->setFocusPolicy(Qt::NoFocus);
-#endif
-        }
-    }
+    addToolbarActions(actions, theme.metrics);
     
     m_toolbar->addSeparator();
     
@@ -909,20 +850,7 @@ void TextEditor::setupToolbar()
     actions.clear();
     actions.clear();
     actions << m_linkAction.get() << m_imageAction.get() << m_cameraAction.get();
-    
-    for (QAction* action : actions) {
-        m_toolbar->addAction(action);
-        // Ensure the action's associated button is touch-friendly
-        QWidget* widget = m_toolbar->widgetForAction(action);
-        if (QToolButton* button = qobject_cast<QToolButton*>(widget)) {
-            button->setMinimumSize(theme.metrics.touchTarget, theme.metrics.touchTarget);
-            button->setIconSize(QSize(theme.metrics.iconSize, theme.metrics.iconSize));
-            #ifdef Q_OS_ANDROID
-            button->setAttribute(Qt::WA_AcceptTouchEvents, true);
-            button->setFocusPolicy(Qt::NoFocus);
-#endif
-        }
-    }
+    addToolbarActions(actions, theme.metrics);
     
     // Undo/redo actions are now only in the MainView toolbar; removed from TextEditor toolbar.
     // Add separator before any additional toolbar elements
@@ -963,6 +891,23 @@ void TextEditor::createToolbarSection(const QString & /*title*/, const QList<QAc
         m_toolbar->addAction(action);
     }
     m_toolbar->addSeparator();
+}
+
+void TextEditor::addToolbarActions(const QList<QAction*> &actions, const ThemeMetrics &metrics)
+{
+    for (QAction* action : actions) {
+        m_toolbar->addAction(action);
+        QWidget* widget = m_toolbar->widgetForAction(action);
+        if (QToolButton* button = qobject_cast<QToolButton*>(widget)) {
+            button->setMinimumSize(metrics.touchTarget, metrics.touchTarget);
+            button->setMaximumHeight(metrics.touchTarget);
+            button->setIconSize(QSize(metrics.iconSize, metrics.iconSize));
+#ifdef Q_OS_ANDROID
+            button->setAttribute(Qt::WA_AcceptTouchEvents, true);
+            button->setFocusPolicy(Qt::NoFocus);
+#endif
+        }
+    }
 }
 
 void TextEditor::setupEditor()
@@ -1151,39 +1096,51 @@ void TextEditor::setupActions()
     // Create overscroll overlay widgets (positioned independently of toolbar)
     m_overscrollLeftWidget = QuteNote::makeOwned<QToolButton>(this);
     m_overscrollLeftWidget->setIcon(QIcon(":/resources/icons/custom/chevrons-left.svg"));
-    // Initial conservative sizing; final size will be applied by applyOverlayButtonTheme()
-    m_overscrollLeftWidget->setMinimumSize(20, 40);
-    m_overscrollLeftWidget->setIconSize(QSize(24, 24));
+    // Initial sizing via theme; final size will be applied by applyOverlayButtonTheme()
+    const Theme preTheme = ThemeManager::instance()->currentTheme();
+    m_overscrollLeftWidget->setMinimumSize(preTheme.metrics.touchTarget / 2, preTheme.metrics.touchTarget);
+    m_overscrollLeftWidget->setIconSize(QSize(preTheme.metrics.iconSize, preTheme.metrics.iconSize));
     m_overscrollLeftWidget->hide();
     
     m_overscrollRightWidget = QuteNote::makeOwned<QToolButton>(this);
     m_overscrollRightWidget->setIcon(QIcon(":/resources/icons/custom/chevrons-right.svg"));
-    // Initial conservative sizing; final size will be applied by applyOverlayButtonTheme()
-    m_overscrollRightWidget->setMinimumSize(20, 40);
-    m_overscrollRightWidget->setIconSize(QSize(24, 24));
+    // Initial sizing via theme; final size will be applied by applyOverlayButtonTheme()
+    m_overscrollRightWidget->setMinimumSize(preTheme.metrics.touchTarget / 2, preTheme.metrics.touchTarget);
+    m_overscrollRightWidget->setIconSize(QSize(preTheme.metrics.iconSize, preTheme.metrics.iconSize));
     m_overscrollRightWidget->hide();
     
-    // Apply consistent styling to overlay widgets
-    QString overlayStyle = 
-        "QToolButton {"
-        "    border: none;"
-        "    background: rgba(0, 0, 0, 0.1);"
-        "    padding: 2px;"
-        "    margin: 1px;"
-        "    border-radius: 4px;"
-        "}"
-        "QToolButton:disabled {"
-        "    opacity: 0.3;"
-        "}"
-        "QToolButton:hover {"
-        "    background: rgba(0, 0, 0, 0.2);"
-        "}"
-        "QToolButton:pressed {"
-        "    background: rgba(0, 0, 0, 0.3);"
-        "}";
-    
-    m_overscrollLeftWidget->setStyleSheet(overlayStyle);
-    m_overscrollRightWidget->setStyleSheet(overlayStyle);
+    // Apply theme-aware styling to overlay widgets
+    {
+        const Theme& theme = ThemeManager::instance()->currentTheme();
+        const QColor textCol = theme.colors.text;
+        int r = textCol.red();
+        int g = textCol.green();
+        int b = textCol.blue();
+        const int radius = theme.metrics.borderRadius;
+
+        QString overlayStyle =
+            QString(
+                "QToolButton {"
+                "    border: none;"
+                "    background: rgba(%1,%2,%3,0.08);"
+                "    padding: 2px;"
+                "    margin: 1px;"
+                "    border-radius: %4px;"
+                "}"
+                "QToolButton:disabled {"
+                "    opacity: 0.3;"
+                "}"
+                "QToolButton:hover {"
+                "    background: rgba(%1,%2,%3,0.14);"
+                "}"
+                "QToolButton:pressed {"
+                "    background: rgba(%1,%2,%3,0.20);"
+                "}"
+            ).arg(r).arg(g).arg(b).arg(radius);
+
+        m_overscrollLeftWidget->setStyleSheet(overlayStyle);
+        m_overscrollRightWidget->setStyleSheet(overlayStyle);
+    }
 
     // Apply theme-based sizing and colors
     applyOverlayButtonTheme();
@@ -1275,7 +1232,8 @@ void TextEditor::updateToolbarTheme()
     for (QAction* action : actions) {
         QWidget* widget = m_toolbar->widgetForAction(action);
         if (QToolButton* button = qobject_cast<QToolButton*>(widget)) {
-            button->setFixedSize(theme.metrics.touchTarget, theme.metrics.touchTarget);
+            button->setFixedHeight(theme.metrics.touchTarget);
+            button->setMinimumWidth(theme.metrics.touchTarget);
             button->setIconSize(QSize(theme.metrics.iconSize, theme.metrics.iconSize));
         }
     }
@@ -1283,28 +1241,26 @@ void TextEditor::updateToolbarTheme()
     // Update comboboxes
     if (m_fontCombo) {
         m_fontCombo->setFixedHeight(theme.metrics.touchTarget);
+        m_fontCombo->setMaximumWidth(theme.metrics.touchTarget * 3);
         m_fontCombo->setFont(theme.headerFont);
         // Set explicit font size in stylesheet to ensure scaling
         m_fontCombo->setStyleSheet(QString("QComboBox { font-size: %1pt; }").arg(theme.headerFont.pointSize()));
     }
     if (m_sizeCombo) {
         m_sizeCombo->setFixedHeight(theme.metrics.touchTarget);
+        m_sizeCombo->setMinimumWidth(theme.metrics.touchTarget * 5 / 3);
+        m_sizeCombo->setMaximumWidth(theme.metrics.touchTarget * 5 / 3);
         m_sizeCombo->setFont(theme.headerFont);
         // Set explicit font size in stylesheet to ensure scaling
         m_sizeCombo->setStyleSheet(QString("QComboBox { font-size: %1pt; }").arg(theme.headerFont.pointSize()));
     }
     
-    // Update toolbar height
-    // Update toolbar height
-    const int toolbarVPadding = 12; // Increased padding to prevent clipping
-    m_toolbar->setFixedHeight(theme.metrics.touchTarget + toolbarVPadding);
+    // Update toolbar height to match main toolbar pattern
+    m_toolbar->setFixedHeight(theme.metrics.touchTarget + 12);
     
-    // Update toolbar area height to match (toolbar + scrollbar)
+    // Update toolbar area height (no scrollbar reservation)
     if (m_toolbarArea) {
-        const int scrollBarExtent = style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, m_toolbarArea.get());
-        const int extraPad = 4; // Increased padding to prevent clipping
-        int effectiveToolbarH = m_toolbar->height();
-        m_toolbarArea->setFixedHeight(effectiveToolbarH + scrollBarExtent + extraPad);
+        m_toolbarArea->setFixedHeight(m_toolbar->height() + 6);
     }
     
     // Refresh toolbar layout
@@ -1327,11 +1283,8 @@ void TextEditor::updateToolbarContentWidth()
         return;
     }
 
-    const bool sizeChanged = (m_toolbar->minimumWidth() != hint.width()) ||
-                             (m_toolbar->maximumWidth() != hint.width());
-
+    const bool sizeChanged = (m_toolbar->minimumWidth() != hint.width());
     m_toolbar->setMinimumWidth(hint.width());
-    m_toolbar->setMaximumWidth(hint.width());
 
     if (sizeChanged) {
         m_toolbar->updateGeometry();
@@ -2163,7 +2116,6 @@ void TextEditor::updateOverscrollIndicators()
 #endif
 }
 
-#ifdef Q_OS_ANDROID
 void TextEditor::scrollToolbarLeft()
 {
     if (!m_toolbarArea) { return;
@@ -2189,7 +2141,6 @@ void TextEditor::scrollToolbarRight()
         QTimer::singleShot(10, this, [this]() { updateOverscrollIndicators(); });
     }
 }
-#endif
 
 #ifdef Q_OS_ANDROID
 void TextEditor::updateEditorGeometry()
@@ -2201,9 +2152,7 @@ void TextEditor::updateEditorGeometry()
         }
     }
 }
-#endif
 
-#ifdef Q_OS_ANDROID
 void TextEditor::onLongPressDetected()
 {
     if (!m_editor) { return;

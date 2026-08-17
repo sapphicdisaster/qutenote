@@ -3,16 +3,17 @@
 #include "colorpicker.h"
 #include "aboutdialog.h"
 #include "thememanager.h"
+#include "uiutils.h"
 #include <QApplication>
 #include <QStyleFactory>
 #include <QDir>
-#include <QStandardPaths>
 #include <QMessageBox>
 #include <QDesktopServices>
 #include <QUrl>
 #include <QFileDialog>
 #include <QScrollBar>
 #include <QFormLayout>
+#include <QResizeEvent>
 
 SettingsView::SettingsView(QWidget *parent)
     : ComponentBase(parent)
@@ -38,7 +39,6 @@ SettingsView::~SettingsView()
 
 void SettingsView::setupComponent()
 {
-    m_settings = QuteNote::makeOwned<QSettings>("QuteNote", "QuteNote");
     setupUI();
     loadSettings();
     
@@ -117,7 +117,7 @@ void SettingsView::setupUI()
     
     connect(backBtn, &QPushButton::clicked, this, [this]() {
         saveSettings();
-        emit settingsChanged();
+        emit backToMain();
     });
     
     connect(settingsBtn, &QPushButton::clicked, this, [this]() {
@@ -143,11 +143,11 @@ void SettingsView::setupGeneralTab()
     m_browseDirBtn = QuteNote::makeOwned<QPushButton>("Browse...", m_generalTab.get());
 
     QWidget *notesDirWidget = new QWidget(m_generalTab.get());
-    auto notesDirLayout = new QHBoxLayout(notesDirWidget);
-    notesDirLayout->setContentsMargins(0,0,0,0);
-    notesDirLayout->addWidget(m_notesDirEdit.get());
-    notesDirLayout->addWidget(m_browseDirBtn.get());
-    notesDirWidget->setLayout(notesDirLayout);
+    m_notesDirLayout = new QHBoxLayout(notesDirWidget);
+    m_notesDirLayout->setContentsMargins(0,0,0,0);
+    m_notesDirLayout->addWidget(m_notesDirEdit.get());
+    m_notesDirLayout->addWidget(m_browseDirBtn.get());
+    notesDirWidget->setLayout(m_notesDirLayout);
 
     m_languageLabel = QuteNote::makeOwned<QLabel>("Language:", m_generalTab.get());
     m_languageCombo = QuteNote::makeOwned<QComboBox>(m_generalTab.get());
@@ -181,13 +181,13 @@ void SettingsView::setupGeneralTab()
     connect(m_languageCombo.get(), &QComboBox::currentTextChanged, this, &SettingsView::settingsChanged);
     // Don't emit settingsChanged for checkboxes - they save immediately without closing settings
     connect(m_autoSaveCheck.get(), &QCheckBox::toggled, this, [this](bool checked) {
-        m_settings->setValue("autoSave", checked);
+        UIUtils::quteSettings().setValue("autoSave", checked);
     });
     connect(m_showSidebarCheck.get(), &QCheckBox::toggled, this, [this](bool checked) {
-        m_settings->setValue("showSidebarByDefault", checked);
+        UIUtils::quteSettings().setValue("showSidebarByDefault", checked);
     });
     connect(m_autoHideSidebarCheck.get(), &QCheckBox::toggled, this, [this](bool checked) {
-        m_settings->setValue("autoHideSidebar", checked);
+        UIUtils::quteSettings().setValue("autoHideSidebar", checked);
     });
 
     m_tabWidget->addTab(m_generalTab.get(), tr("General"));
@@ -197,21 +197,13 @@ void SettingsView::setupAppearanceTab()
 {
     m_appearanceTab = QuteNote::makeOwned<QWidget>();
     m_appearanceTab->setObjectName("AppearanceTab");
-    QScrollArea *scrollArea = new QScrollArea(m_appearanceTab.get());
-    scrollArea->setWidgetResizable(true);
-    QWidget *contentWidget = new QWidget(scrollArea);
-    QVBoxLayout *layout = new QVBoxLayout(contentWidget);
+    QVBoxLayout *layout = new QVBoxLayout(m_appearanceTab.get());
+    layout->setContentsMargins(8, 8, 8, 8);
     layout->setSpacing(12);
 
-    m_themeSettings = QuteNote::makeOwned<ThemeSettingsPage>(contentWidget);
+    m_themeSettings = QuteNote::makeOwned<ThemeSettingsPage>(m_appearanceTab.get());
     layout->addWidget(m_themeSettings.get());
-
-    contentWidget->setLayout(layout);
-    scrollArea->setWidget(contentWidget);
-    QVBoxLayout *outerLayout = new QVBoxLayout(m_appearanceTab.get());
-    outerLayout->setContentsMargins(0, 0, 0, 0);
-    outerLayout->addWidget(scrollArea);
-    m_appearanceTab->setLayout(outerLayout);
+    m_appearanceTab->setLayout(layout);
 
     connect(m_themeSettings.get(), &ThemeSettingsPage::settingsChanged, this, &SettingsView::settingsChanged);
     m_tabWidget->addTab(m_appearanceTab.get(), tr("Appearance"));
@@ -221,28 +213,22 @@ void SettingsView::setupAdvancedTab()
 {
     m_advancedTab = QuteNote::makeOwned<QWidget>();
     m_advancedTab->setObjectName("AdvancedTab");
-    QScrollArea *scrollArea = new QScrollArea(m_advancedTab.get());
-    scrollArea->setWidgetResizable(true);
-    QWidget *contentWidget = new QWidget(scrollArea);
-    QVBoxLayout *layout = new QVBoxLayout(contentWidget);
+    QVBoxLayout *layout = new QVBoxLayout(m_advancedTab.get());
+    layout->setContentsMargins(8, 8, 8, 8);
     layout->setSpacing(12);
 
     // Backup settings page
-    m_backupSettings = QuteNote::makeOwned<BackupSettingsPage>(contentWidget);
+    m_backupSettings = QuteNote::makeOwned<BackupSettingsPage>(m_advancedTab.get());
     layout->addWidget(m_backupSettings.get());
 
     // Reset button
-    m_resetBtn = QuteNote::makeOwned<QPushButton>("Reset to Defaults", contentWidget);
+    m_resetBtn = QuteNote::makeOwned<QPushButton>("Reset to Defaults", m_advancedTab.get());
     layout->addWidget(m_resetBtn.get());
     layout->addStretch(1);
 
-    contentWidget->setLayout(layout);
-    scrollArea->setWidget(contentWidget);
-    QVBoxLayout *outerLayout = new QVBoxLayout(m_advancedTab.get());
-    outerLayout->setContentsMargins(0, 0, 0, 0);
-    outerLayout->addWidget(scrollArea);
-    m_advancedTab->setLayout(outerLayout);
+    m_advancedTab->setLayout(layout);
 
+    connect(m_backupSettings.get(), &BackupSettingsPage::settingsChanged, this, &SettingsView::settingsChanged);
     connect(m_resetBtn.get(), &QPushButton::clicked, this, &SettingsView::onResetSettings);
     m_tabWidget->addTab(m_advancedTab.get(), tr("Advanced"));
 }
@@ -310,14 +296,14 @@ void SettingsView::loadSettings()
     m_backupSettings->loadSettings();
     
     // Load notes directory setting
-    QString notesDir = m_settings->value("notesDirectory", 
-        QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/QuteNote").toString();
+    QString notesDir = UIUtils::quteSettings().value("notesDirectory",
+        UIUtils::defaultNotesDirectory()).toString();
     m_notesDirEdit->setText(notesDir);
     
     // Load auto-save and sidebar settings
-    m_autoSaveCheck->setChecked(m_settings->value("autoSave", true).toBool());
-    m_showSidebarCheck->setChecked(m_settings->value("showSidebarByDefault", true).toBool());
-    m_autoHideSidebarCheck->setChecked(m_settings->value("autoHideSidebar", true).toBool());
+    m_autoSaveCheck->setChecked(UIUtils::quteSettings().value("autoSave", true).toBool());
+    m_showSidebarCheck->setChecked(UIUtils::quteSettings().value("showSidebarByDefault", true).toBool());
+    m_autoHideSidebarCheck->setChecked(UIUtils::quteSettings().value("autoHideSidebar", true).toBool());
 }
 
 void SettingsView::saveSettings()
@@ -326,7 +312,7 @@ void SettingsView::saveSettings()
     m_backupSettings->saveSettings();
     
     // Save notes directory setting
-    m_settings->setValue("notesDirectory", m_notesDirEdit->text());
+    UIUtils::quteSettings().setValue("notesDirectory", m_notesDirEdit->text());
     
     // Auto-save and sidebar settings are saved immediately when toggled, no need to save here
 }
@@ -379,8 +365,8 @@ void SettingsView::onFontChanged()
     QFont font = QFontDialog::getFont(&ok, QApplication::font(), this, "Choose Editor Font");
     if (ok) {
         // Store font information
-        m_settings->setValue("fontFamily", font.family());
-        m_settings->setValue("fontSize", font.pointSize());
+        UIUtils::quteSettings().setValue("fontFamily", font.family());
+        UIUtils::quteSettings().setValue("fontSize", font.pointSize());
         emit settingsChanged();
     }
 }
@@ -393,12 +379,12 @@ void SettingsView::onColorChanged()
     if (btn == m_editorColorBtn.get()) {
         color = ColorPicker::getColor(Qt::white, this);
         if (color.isValid()) {
-            m_settings->setValue("editorBackgroundColor", color.name());
+            UIUtils::quteSettings().setValue("editorBackgroundColor", color.name());
         }
     } else if (btn == m_sidebarColorBtn.get()) {
         color = ColorPicker::getColor(Qt::lightGray, this);
         if (color.isValid()) {
-            m_settings->setValue("sidebarBackgroundColor", color.name());
+            UIUtils::quteSettings().setValue("sidebarBackgroundColor", color.name());
         }
     }
 
@@ -409,7 +395,7 @@ void SettingsView::onBrowseNotesDirectory()
 {
     QString currentDir = m_notesDirEdit->text();
     if (currentDir.isEmpty()) {
-        currentDir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/QuteNote";
+        currentDir = UIUtils::defaultNotesDirectory();
     }
 
     QString dir = QFileDialog::getExistingDirectory(this, "Select Notes Directory",
@@ -429,7 +415,7 @@ void SettingsView::onResetSettings()
         QMessageBox::Yes | QMessageBox::No);
 
     if (reply == QMessageBox::Yes) {
-        m_settings->clear();
+        UIUtils::quteSettings().clear();
         loadSettings(); // Reload defaults
         emit settingsChanged();
     }
@@ -469,4 +455,15 @@ void SettingsView::onDonate()
 void SettingsView::setupLicenseTab()
 {
     // License tab removed: license information is now available inside the About dialog.
+}
+
+void SettingsView::resizeEvent(QResizeEvent *event)
+{
+    QWidget::resizeEvent(event);
+    
+    // Use stacked layout when narrower than ~340px (panel-friendly threshold)
+    bool isNarrow = width() < 340;
+    if (m_notesDirLayout) {
+        m_notesDirLayout->setDirection(isNarrow ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
+    }
 }

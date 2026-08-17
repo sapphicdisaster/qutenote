@@ -11,7 +11,7 @@ it's forever free but you can support development with a donation.
 - **Rich Text Editing**: Format your notes with bold, italic, underline, colors, lists, links, and images (Camera support on Android)
 - **Image Management**: Resize and align images with an intuitive touch-friendly popup dialog
 - **Touch-Friendly**: Built from the ground up for touch devices with large, comfortable buttons
-- **Cross-Platform**: built for Android (Qt 6.10+)
+- **Cross-Platform**: Runs on Windows, Linux, macOS, and Android (Qt 6.10+)
 - **Theme System**: Choose between Pink and Purple themes with customizable zoom levels (100%/150%/200%)
 - **File Browser**: Navigate your notes with an intuitive file tree
 - **Auto-Backup**: Automatic backup system to keep your notes safe
@@ -24,60 +24,103 @@ it's forever free but you can support development with a donation.
 - Qt 6.10 or later
 - CMake 3.16 or later
 - C++17 compiler
+- Ninja (optional but recommended)
+- **Android only:** Android SDK + NDK 27.2, JDK 17
 
-### Desktop Build
-
-```bash
-mkdir build
-cd build
-cmake ..
-cmake --build .
-```
-
-### Linux Build
-
-On Ubuntu/Debian, install the required Qt 6 dependencies first:
+### Linux Desktop Build
 
 ```bash
-sudo apt update
-sudo apt install build-essential cmake qt6-base-dev qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools
+cd QuteNote
+mkdir -p build && cd build
+cmake .. -DCMAKE_PREFIX_PATH=/path/to/Qt/6.10.2/gcc_64 -G Ninja
+cmake --build . -j$(nproc)
+# Binary: build/QuteNote
 ```
 
-Then build as usual:
+A convenience script `build.sh` is provided in the repository root that
+automates configuration and building with Ninja. Edit the `QT_PATH`
+variable inside it to match your Qt installation before running.
 
 ```bash
-mkdir build
-cd build
-cmake ..
-cmake --build .
+./build.sh
 ```
 
+### Android Build (Linux host)
 
-### Manual Windows Build (CLI)
+#### 1. Install Qt Android kit (no sudo needed)
 
-If Qt Creator is unavailable or you prefer not to use it, you can install your desired kits with the maintenance tool, then you can build manually using `qt-cmake` and Ninja.
+```bash
+# Install aqtinstall via pipx
+pipx install aqtinstall
 
-1. **Configure**:
-   Adjust paths for your specific user and Qt version (e.g., `6.10.1`).
+# Install Qt 6.10.2 Android arm64-v8a
+aqt install-qt linux android 6.10.2 android_arm64_v8a \
+  --outputdir /path/to/Qt
+```
 
-   ```powershell
-   & "C:\Qt\6.10.1\android_arm64_v8a\bin\qt-cmake.bat" -S . -B build/Qt_6_10_1_for_Android_arm64_v8a-Debug -G Ninja -DCMAKE_MAKE_PROGRAM="C:\Qt\Tools\Ninja\ninja.exe" -DANDROID_SDK_ROOT="C:\Users\skye\AppData\Local\Android\Sdk" -DANDROID_NDK_ROOT="C:\Users\skye\AppData\Local\Android\Sdk\ndk\27.2.12479018" -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-35
-   ```
+#### 2. Android SDK & NDK
 
-2. **Build**:
-   ```powershell
-   & "C:\Qt\Tools\CMake_64\bin\cmake.exe" --build build/Qt_6_10_1_for_Android_arm64_v8a-Debug --target all
-   ```
+```bash
+# Download cmdline-tools
+mkdir -p ~/Android/Sdk/cmdline-tools
+wget https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+unzip commandlinetools-linux-*.zip -d ~/Android/Sdk/cmdline-tools
+mv ~/Android/Sdk/cmdline-tools/cmdline-tools ~/Android/Sdk/cmdline-tools/latest
+
+# Install NDK, platform, build-tools
+~/Android/Sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=$HOME/Android/Sdk \
+  "ndk;27.2.12479018" "platforms;android-35" "build-tools;35.0.0"
+```
+
+#### 3. Configure & build
+
+```bash
+cd QuteNote
+mkdir -p build/android
+
+/path/to/Qt/6.10.2/android_arm64_v8a/bin/qt-cmake \
+  -S . -B build/android -G Ninja \
+  -DQT_HOST_PATH=/path/to/Qt/6.10.2/gcc_64 \
+  -DANDROID_SDK_ROOT=$HOME/Android/Sdk \
+  -DANDROID_NDK_ROOT=$HOME/Android/Sdk/ndk/27.2.12479018 \
+  -DANDROID_ABI=arm64-v8a \
+  -DANDROID_PLATFORM=android-35
+
+cmake --build build/android -j$(nproc)
+# APK: build/android/android-build/build/outputs/apk/debug/android-build-debug.apk
+```
+
+### Windows Build (CLI)
+
+If Qt Creator is unavailable, build manually using `qt-cmake` and Ninja:
+
+**Desktop:**
+```powershell
+& "C:\Qt\6.10.1\mingw_64\bin\qt-cmake.bat" -S . -B build/desktop -G Ninja
+& "C:\Qt\Tools\CMake_64\bin\cmake.exe" --build build/desktop
+```
+
+**Android:**
+```powershell
+& "C:\Qt\6.10.1\android_arm64_v8a\bin\qt-cmake.bat" -S . -B build/android -G Ninja `
+  -DCMAKE_MAKE_PROGRAM="C:\Qt\Tools\Ninja\ninja.exe" `
+  -DANDROID_SDK_ROOT="C:\Users\<user>\AppData\Local\Android\Sdk" `
+  -DANDROID_NDK_ROOT="C:\Users\<user>\AppData\Local\Android\Sdk\ndk\27.2.12479018" `
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-35
+
+& "C:\Qt\Tools\CMake_64\bin\cmake.exe" --build build/android
+```
 ## Architecture
 
 QuteNote is built with a modular architecture:
 
 - **ComponentBase**: Base class for all major UI components with lifecycle management
 - **ThemeManager**: Centralized theming system with colors, metrics, and fonts
-- **MainView**: Primary view hosting the editor, file browser, and toolbars
+- **MainView**: Primary view hosting the editor, file browser, settings panel, and toolbar
 - **TextEditor**: Rich text editor with formatting toolbar
-- **FileBrowser**: Touch-optimized file navigation
-- **SettingsView**: Tabbed settings interface
+- **FileBrowser**: Touch-optimized file navigation (left slide-in panel)
+- **SettingsView**: Tabbed settings interface (right slide-in panel)
+- **Panel System**: Unified dual-panel layout with animated slide transitions and mutual exclusion — opening one panel auto-closes the other
 
 ### Theme System
 

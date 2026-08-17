@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "uiutils.h"
 
 #include <QApplication>
 #include <QLocale>
@@ -17,6 +18,9 @@ int main(int argc, char *argv[])
     // under resources/fonts/). Use those resource paths here.
     int fontId = QFontDatabase::addApplicationFont(":/resources/fonts/NunitoSans-Variable.ttf");
     int fontIdItalic = QFontDatabase::addApplicationFont(":/resources/fonts/NunitoSans-Italic-Variable.ttf");
+    int fontIdSerif = QFontDatabase::addApplicationFont(":/resources/fonts/LibreBaskerville-Regular.ttf");
+    int fontIdMono = QFontDatabase::addApplicationFont(":/resources/fonts/JetBrainsMono-Regular.ttf");
+
     QString nunitoSansFamily;
     if (fontId != -1) {
         QStringList familyNames = QFontDatabase::applicationFontFamilies(fontId);
@@ -38,6 +42,24 @@ int main(int argc, char *argv[])
         }
     }
 
+    if (fontIdSerif == -1) {
+        qWarning() << "Failed to load serif font.";
+    } else {
+        QStringList serifFamilies = QFontDatabase::applicationFontFamilies(fontIdSerif);
+        if (!serifFamilies.isEmpty()) {
+            qDebug() << "Loaded serif font family:" << serifFamilies.at(0);
+        }
+    }
+
+    if (fontIdMono == -1) {
+        qWarning() << "Failed to load monospace font.";
+    } else {
+        QStringList monoFamilies = QFontDatabase::applicationFontFamilies(fontIdMono);
+        if (!monoFamilies.isEmpty()) {
+            qDebug() << "Loaded monospace font family:" << monoFamilies.at(0);
+        }
+    }
+
     QTranslator translator;
     const QStringList uiLanguages = QLocale::system().uiLanguages();
     for (const QString &locale : uiLanguages) {
@@ -50,10 +72,6 @@ int main(int argc, char *argv[])
     // (startup diagnostics removed)
 
     MainWindow w;
-#ifdef Q_OS_ANDROID
-    w.showMaximized();
-#else
-    w.show();
-#endif
+    UIUtils::showWindow(&w);
     return a.exec();
 }

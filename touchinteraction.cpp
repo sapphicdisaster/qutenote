@@ -1,4 +1,5 @@
 #include "touchinteraction.h"
+#include "smartpointers.h"
 #include <QWidget>
 #include <QtMath>
 #include <QDateTime>
@@ -21,7 +22,7 @@ TouchInteraction::TouchInteraction(QObject *parent)
     m_bounceCurve.setAmplitude(0.5);
     m_bounceCurve.setPeriod(0.75);
     
-    m_physicsEngine = new PhysicsEngine(this);
+    m_physicsEngine = QuteNote::makeOwned<PhysicsEngine>(this);
     m_isPhysicsActive = false;
     
     // Connect physics timer to update method
@@ -36,14 +37,14 @@ TouchInteraction::TouchInteraction(QObject *parent)
     m_physicsEngine->setUpdateInterval(16); // Default to 60Hz updates
     
     // Connect physics engine signals
-    connect(m_physicsEngine, &PhysicsEngine::stateUpdated, this, [this](const PhysicsState &state) {
+    connect(m_physicsEngine.get(), &PhysicsEngine::stateUpdated, this, [this](const PhysicsState &state) {
         setOverscrollAmount(state.position);
         if (state.position <= state.minLimit || state.position >= state.maxLimit) {
             emit scrollLimitReached(state.position);
         }
     });
     
-    connect(m_physicsEngine, &PhysicsEngine::simulationComplete, this, [this]() {
+    connect(m_physicsEngine.get(), &PhysicsEngine::simulationComplete, this, [this]() {
         m_isPhysicsActive = false;
     });
 }

@@ -8,6 +8,7 @@
 #include <QMouseEvent>
 #include <QPainterPath>
 #include "thememanager.h"
+#include "smartpointers.h"
 
 class TitleBarWidget : public QWidget {
     Q_OBJECT
@@ -35,11 +36,11 @@ private slots:
 private:
     void updateDisplay();
     QString m_filename;
-    QLineEdit *m_edit;
-    QLabel *m_label;
-    QPushButton *m_saveButton;
-    QHBoxLayout *m_layout;
-    ThemeManager *m_themeManager;
+    QuteNote::OwnedPtr<QLineEdit> m_edit;
+    QuteNote::OwnedPtr<QLabel> m_label;
+    QuteNote::OwnedPtr<QPushButton> m_saveButton;
+    QuteNote::OwnedPtr<QHBoxLayout> m_layout;
+    ThemeManager *m_themeManager = nullptr;
     QString nameWithoutExtension(const QString &filename) const;
     QString extension(const QString &filename) const;
 };

@@ -16,6 +16,7 @@
 #include <QGraphicsOpacityEffect>
 #include <QScroller>
 #include <QAbstractButton>
+#include <QTimer>
 
 namespace UIUtils {
 
@@ -30,17 +31,26 @@ QWidget* createCollapsibleSection(const QString& title, QWidget* content, bool i
     QPushButton* header = new QPushButton(title, container);
     header->setCheckable(true);
     header->setChecked(isExpanded);
-    header->setStyleSheet(
-        "QPushButton {"
-        "    text-align: left;"
-        "    padding: 12px;"
-        "    border: none;"
-        "    background: transparent;"
-        "}"
-        "QPushButton:hover {"
-        "    background: rgba(128, 128, 128, 0.1);"
-        "}"
-    );
+    {
+        const Theme &theme = ThemeManager::instance()->currentTheme();
+        QColor hoverBg(theme.colors.text);
+        hoverBg.setAlphaF(0.1f);
+        header->setStyleSheet(
+            QStringLiteral(
+                "QPushButton {"
+                "    text-align: left;"
+                "    padding: 12px;"
+                "    border: none;"
+                "    background: %1;"
+                "}"
+                "QPushButton:hover {"
+                "    background: %2;"
+                "}"
+            )
+            .arg(theme.colors.surface.name(QColor::HexArgb))
+            .arg(hoverBg.name(QColor::HexArgb))
+        );
+    }
     makeTouchFriendly(header);
 
     // Content
@@ -127,12 +137,8 @@ QWidget* createToolbarSection(const QString& title, const QList<QWidget*>& items
     for (QWidget* item : items) {
         // Ensure minimum size for better touch targets
         if (item) {
-            // For Android, use larger touch targets
-#ifdef Q_OS_ANDROID
-            item->setMinimumSize(60, 60); // Larger touch targets for Android
-#else
-            item->setMinimumSize(55, 55); // Standard touch targets
-#endif
+            const int targetSize = TouchMetrics::PREFERRED_TOUCH_TARGET;
+            item->setMinimumSize(targetSize, targetSize);
             // If it's a button, also set icon size
             if (QAbstractButton* button = qobject_cast<QAbstractButton*>(item)) {
                 button->setIconSize(QSize(32, 32));
@@ -372,6 +378,57 @@ void adaptForTouch(QWidget* widget)
             adaptForTouch(childWidget);
         }
     }
+}
+
+QString defaultNotesDirectory()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/QuteNote";
+}
+
+QSettings& quteSettings()
+{
+    static QSettings s("QuteNote", "QuteNote");
+    return s;
+}
+
+void setupDesktopWindow(QWidget* window, const QString& title,
+                        int minWidth, int minHeight,
+                        int defaultWidth, int defaultHeight)
+{
+#ifndef Q_OS_ANDROID
+    window->setWindowTitle(title);
+    if (minWidth > 0 && minHeight > 0) {
+        window->setMinimumSize(minWidth, minHeight);
+    }
+    if (defaultWidth > 0 && defaultHeight > 0) {
+        window->resize(defaultWidth, defaultHeight);
+    }
+#else
+    Q_UNUSED(window);
+    Q_UNUSED(title);
+    Q_UNUSED(minWidth);
+    Q_UNUSED(minHeight);
+    Q_UNUSED(defaultWidth);
+    Q_UNUSED(defaultHeight);
+#endif
+}
+
+void quitApplication()
+{
+#ifdef Q_OS_ANDROID
+    QTimer::singleShot(0, qApp, &QApplication::quit);
+#else
+    QApplication::quit();
+#endif
+}
+
+void showWindow(QWidget* window)
+{
+#ifdef Q_OS_ANDROID
+    window->showMaximized();
+#else
+    window->show();
+#endif
 }
 
 } // namespace UIUtils

@@ -10,19 +10,14 @@
 #include <QComboBox>
 #include <QPushButton>
 #include <QSpinBox>
-#include <QFontComboBox>
 #include <QVBoxLayout>
 
 ThemeSettingsPage::ThemeSettingsPage(QWidget *parent)
     : QWidget(parent)
-    , m_themeSelector(nullptr)
-    , m_defaultFontCombo(nullptr)
-    , m_menuFontCombo(nullptr)
-    , m_defaultFontSize(nullptr)
-    , m_zoomSlider(nullptr)
-    , m_isUpdating(false)
+    , m_isUpdating(true)
 {
     setupUI();
+    m_isUpdating = false;
 }
 
 void ThemeSettingsPage::setupUI()
@@ -31,14 +26,14 @@ void ThemeSettingsPage::setupUI()
     layout->setContentsMargins(8,8,8,8);
     layout->setSpacing(8);
 
-    m_themeSelector = new QComboBox(this);
+    m_themeSelector = QuteNote::makeOwned<QComboBox>(this);
     // Populate with available themes from ThemeManager
     const QStringList themes = ThemeManager::instance()->availableThemes();
     for (const QString &t : themes) m_themeSelector->addItem(t);
-    connect(m_themeSelector, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ThemeSettingsPage::onThemeChanged);
+    connect(m_themeSelector.get(), QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ThemeSettingsPage::onThemeChanged);
 
     layout->addWidget(new QLabel("Theme:", this));
-    layout->addWidget(m_themeSelector);
+    layout->addWidget(m_themeSelector.get());
 
     createColorPickers();
     setupFontSection();
@@ -98,15 +93,19 @@ void ThemeSettingsPage::setupFontSection()
     auto layout = new QFormLayout(group);
     
     // Editor font section
-    m_defaultFontCombo = new QFontComboBox(group);
-    m_defaultFontSize = new QSpinBox(group);
+    m_defaultFontCombo = QuteNote::makeOwned<QComboBox>(group);
+    m_defaultFontCombo->addItem("Sans-Serif (Nunito Sans)", "Nunito Sans");
+    m_defaultFontCombo->addItem("Serif (Libre Baskerville)", "Libre Baskerville");
+    m_defaultFontCombo->addItem("Monospace (JetBrains Mono)", "JetBrains Mono");
+
+    m_defaultFontSize = QuteNote::makeOwned<QSpinBox>(group);
     m_defaultFontSize->setRange(6, 48);
 
-    layout->addRow("Editor font:", m_defaultFontCombo);
-    layout->addRow("Editor size:", m_defaultFontSize);
+    layout->addRow("Editor font:", m_defaultFontCombo.get());
+    layout->addRow("Editor size:", m_defaultFontSize.get());
 
-    connect(m_defaultFontCombo, &QFontComboBox::currentFontChanged, this, &ThemeSettingsPage::onFontChanged);
-    connect(m_defaultFontSize, QOverload<int>::of(&QSpinBox::valueChanged), this, &ThemeSettingsPage::onFontChanged);
+    connect(m_defaultFontCombo.get(), QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ThemeSettingsPage::onFontChanged);
+    connect(m_defaultFontSize.get(), QOverload<int>::of(&QSpinBox::valueChanged), this, &ThemeSettingsPage::onFontChanged);
 
     if (auto mainLayout = qobject_cast<QVBoxLayout*>(this->layout())) mainLayout->addWidget(group);
 }
@@ -117,7 +116,7 @@ void ThemeSettingsPage::setupZoomSection()
     auto layout = new QFormLayout(group);
     
     // Zoom slider (100%, 150%, 200%)
-    m_zoomSlider = new QSlider(Qt::Horizontal, group);
+    m_zoomSlider = QuteNote::makeOwned<QSlider>(Qt::Horizontal, group);
     m_zoomSlider->setRange(0, 2); // 3 positions: 0=100%, 1=150%, 2=200%
     m_zoomSlider->setValue(0);
     m_zoomSlider->setTickPosition(QSlider::TicksBelow);
@@ -129,7 +128,7 @@ void ThemeSettingsPage::setupZoomSection()
     zoomLabel->setMinimumWidth(50); // Fixed width for label to prevent jumping
     
     // Update label while dragging (no theme application)
-    connect(m_zoomSlider, &QSlider::valueChanged, this, [zoomLabel](int value) {
+    connect(m_zoomSlider.get(), &QSlider::valueChanged, this, [zoomLabel](int value) {
         const QStringList labels = {"100%", "150%", "200%"};
         if (value >= 0 && value < labels.size()) {
             zoomLabel->setText(labels[value]);
@@ -137,20 +136,24 @@ void ThemeSettingsPage::setupZoomSection()
     });
     
     // Apply zoom changes only when slider is released
-    connect(m_zoomSlider, &QSlider::sliderReleased, this, &ThemeSettingsPage::onZoomChanged);
+    connect(m_zoomSlider.get(), &QSlider::sliderReleased, this, &ThemeSettingsPage::onZoomChanged);
     
     auto zoomWidget = new QWidget(group);
     auto zoomLayout = new QHBoxLayout(zoomWidget);
     zoomLayout->setContentsMargins(0, 8, 0, 8); // Add vertical margins
-    zoomLayout->addWidget(m_zoomSlider);
+    zoomLayout->addWidget(m_zoomSlider.get());
     zoomLayout->addWidget(zoomLabel);
     
     layout->addRow("UI Zoom:", zoomWidget);
     
     // Menu font section (below zoom)
-    m_menuFontCombo = new QFontComboBox(group);
-    layout->addRow("Menu font:", m_menuFontCombo);
-    connect(m_menuFontCombo, &QFontComboBox::currentFontChanged, this, &ThemeSettingsPage::onFontChanged);
+    m_menuFontCombo = QuteNote::makeOwned<QComboBox>(group);
+    m_menuFontCombo->addItem("Sans-Serif (Nunito Sans)", "Nunito Sans");
+    m_menuFontCombo->addItem("Serif (Libre Baskerville)", "Libre Baskerville");
+    m_menuFontCombo->addItem("Monospace (JetBrains Mono)", "JetBrains Mono");
+
+    layout->addRow("Menu font:", m_menuFontCombo.get());
+    connect(m_menuFontCombo.get(), QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ThemeSettingsPage::onFontChanged);
 
     if (auto mainLayout = qobject_cast<QVBoxLayout*>(this->layout())) mainLayout->addWidget(group);
 }
@@ -193,9 +196,37 @@ void ThemeSettingsPage::loadSettings()
     }
 
     // Fonts
-    m_defaultFontCombo->setCurrentFont(current.defaultFont);
-    m_defaultFontSize->setValue(current.defaultFont.pointSize() > 0 ? current.defaultFont.pointSize() : QApplication::font().pointSize());
-    m_menuFontCombo->setCurrentFont(current.headerFont);
+    if (m_defaultFontCombo) {
+        QString defaultFontFamily = current.defaultFont.family();
+        int idxDefault = m_defaultFontCombo->findData(defaultFontFamily);
+        if (idxDefault == -1) {
+            if (defaultFontFamily.contains("Baskerville", Qt::CaseInsensitive)) {
+                idxDefault = m_defaultFontCombo->findData("Libre Baskerville");
+            } else if (defaultFontFamily.contains("Mono", Qt::CaseInsensitive)) {
+                idxDefault = m_defaultFontCombo->findData("JetBrains Mono");
+            } else {
+                idxDefault = m_defaultFontCombo->findData("Nunito Sans");
+            }
+        }
+        if (idxDefault >= 0) m_defaultFontCombo->setCurrentIndex(idxDefault);
+    }
+    if (m_defaultFontSize) {
+        m_defaultFontSize->setValue(current.defaultFont.pointSize() > 0 ? current.defaultFont.pointSize() : QApplication::font().pointSize());
+    }
+    if (m_menuFontCombo) {
+        QString headerFontFamily = current.headerFont.family();
+        int idxHeader = m_menuFontCombo->findData(headerFontFamily);
+        if (idxHeader == -1) {
+            if (headerFontFamily.contains("Baskerville", Qt::CaseInsensitive)) {
+                idxHeader = m_menuFontCombo->findData("Libre Baskerville");
+            } else if (headerFontFamily.contains("Mono", Qt::CaseInsensitive)) {
+                idxHeader = m_menuFontCombo->findData("JetBrains Mono");
+            } else {
+                idxHeader = m_menuFontCombo->findData("Nunito Sans");
+            }
+        }
+        if (idxHeader >= 0) m_menuFontCombo->setCurrentIndex(idxHeader);
+    }
 
     // Zoom slider (calculate from touchTarget: 48=100%, 72=150%, 96=200%)
     int zoom = 0;
@@ -212,9 +243,11 @@ void ThemeSettingsPage::saveSettings()
     if (m_isUpdating) return;
 
     m_currentTheme.name = m_themeSelector->currentText();
-    m_currentTheme.defaultFont = m_defaultFontCombo->currentFont();
-    m_currentTheme.defaultFont.setPointSize(m_defaultFontSize->value());
-    m_currentTheme.headerFont = m_menuFontCombo->currentFont();
+    m_currentTheme.defaultFont = m_defaultFontCombo ? QFont(m_defaultFontCombo->currentData().toString()) : QFont("Nunito Sans");
+    if (m_defaultFontSize) {
+        m_currentTheme.defaultFont.setPointSize(m_defaultFontSize->value());
+    }
+    m_currentTheme.headerFont = m_menuFontCombo ? QFont(m_menuFontCombo->currentData().toString()) : QFont("Nunito Sans");
 
     // Calculate metrics from zoom slider
     int zoomValue = m_zoomSlider->value();
@@ -234,7 +267,7 @@ void ThemeSettingsPage::saveSettings()
     m_currentTheme.metrics.borderRadius = baseBorder; // Keep border radius constant
     
     // Scale header font size with zoom (keep user's font selection but scale the size)
-    QFont headerFont = m_menuFontCombo->currentFont();
+    QFont headerFont = m_menuFontCombo ? QFont(m_menuFontCombo->currentData().toString()) : QFont("Nunito Sans");
     headerFont.setPointSize(static_cast<int>(baseHeaderFontSize * multiplier));
     m_currentTheme.headerFont = headerFont;
 
@@ -280,9 +313,15 @@ void ThemeSettingsPage::onFontChanged()
 {
     if (m_isUpdating) return;
     // Update current theme fonts in memory only
-    m_currentTheme.defaultFont = m_defaultFontCombo->currentFont();
-    m_currentTheme.defaultFont.setPointSize(m_defaultFontSize->value());
-    m_currentTheme.headerFont = m_menuFontCombo->currentFont();
+    if (m_defaultFontCombo) {
+        m_currentTheme.defaultFont = QFont(m_defaultFontCombo->currentData().toString());
+    }
+    if (m_defaultFontSize) {
+        m_currentTheme.defaultFont.setPointSize(m_defaultFontSize->value());
+    }
+    if (m_menuFontCombo) {
+        m_currentTheme.headerFont = QFont(m_menuFontCombo->currentData().toString());
+    }
 }
 
 void ThemeSettingsPage::onZoomChanged()

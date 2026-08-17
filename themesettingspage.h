@@ -6,12 +6,12 @@
 #include <QComboBox>
 #include <QPushButton>
 #include <QLabel>
-#include <QFontComboBox>
 #include <QSpinBox>
 #include <QSlider>
 #include <QShowEvent>
 #include "thememanager.h"
 #include "colorpicker.h"
+#include "smartpointers.h"
 
 class ThemeSettingsPage : public QWidget
 {
@@ -44,14 +44,12 @@ private:
     void setupFontSection();
     void setupZoomSection();
 
-    QComboBox *m_themeSelector;
+    QuteNote::OwnedPtr<QComboBox> m_themeSelector;
     QMap<QString, QPushButton*> m_colorPickers;
-    QFontComboBox *m_defaultFontCombo;
-    QFontComboBox *m_menuFontCombo;
-    QSpinBox *m_defaultFontSize;
-    
-    // Zoom slider replaces spacing, border radius, icon size, and touch target
-    QSlider *m_zoomSlider;
+    QuteNote::OwnedPtr<QComboBox> m_defaultFontCombo;
+    QuteNote::OwnedPtr<QComboBox> m_menuFontCombo;
+    QuteNote::OwnedPtr<QSpinBox> m_defaultFontSize;
+    QuteNote::OwnedPtr<QSlider> m_zoomSlider;
 
     Theme m_currentTheme;
     bool m_isUpdating;

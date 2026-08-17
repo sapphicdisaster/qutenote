@@ -1,12 +1,14 @@
 #include "backupsettingspage.h"
 #include "thememanager.h"
+#include "smartpointers.h"
+#include "uiutils.h"
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QStandardPaths>
 #include <QDir>
 #include <QDateTime>
-#include <QSettings>
 #include <QFormLayout>
+#include <QResizeEvent>
 
 BackupSettingsPage::BackupSettingsPage(QWidget *parent)
     : QWidget(parent)
@@ -23,25 +25,25 @@ void BackupSettingsPage::setupUI()
     // Backup location and interval (QFormLayout)
     QFormLayout *formLayout = new QFormLayout();
     QLabel *locationLabel = new QLabel("Backup Location:", this);
-    m_backupLocationEdit = new QLineEdit(this);
-    m_browseBtn = new QPushButton("Browse...", this);
+    m_backupLocationEdit = QuteNote::makeOwned<QLineEdit>(this);
+    m_browseBtn = QuteNote::makeOwned<QPushButton>("Browse...", this);
     QWidget *locationWidget = new QWidget(this);
-    auto locationHLayout = new QHBoxLayout(locationWidget);
-    locationHLayout->setContentsMargins(0,0,0,0);
-    locationHLayout->addWidget(m_backupLocationEdit);
-    locationHLayout->addWidget(m_browseBtn);
-    locationWidget->setLayout(locationHLayout);
+    m_locationLayout = QuteNote::makeOwned<QHBoxLayout>(locationWidget);
+    m_locationLayout->setContentsMargins(0,0,0,0);
+    m_locationLayout->addWidget(m_backupLocationEdit.get());
+    m_locationLayout->addWidget(m_browseBtn.get());
+    locationWidget->setLayout(m_locationLayout.get());
     formLayout->addRow(locationLabel, locationWidget);
 
     QLabel *intervalLabel = new QLabel("Backup every:", this);
-    m_autoBackupInterval = new QSpinBox(this);
+    m_autoBackupInterval = QuteNote::makeOwned<QSpinBox>(this);
     m_autoBackupInterval->setRange(1, 744); // 1 hour to 31 days
     m_autoBackupInterval->setValue(24); // Default to daily
     QLabel *hoursLabel = new QLabel("hours", this);
     QWidget *intervalWidget = new QWidget(this);
     auto intervalHLayout = new QHBoxLayout(intervalWidget);
     intervalHLayout->setContentsMargins(0,0,0,0);
-    intervalHLayout->addWidget(m_autoBackupInterval);
+    intervalHLayout->addWidget(m_autoBackupInterval.get());
     intervalHLayout->addWidget(hoursLabel);
     intervalWidget->setLayout(intervalHLayout);
     formLayout->addRow(intervalLabel, intervalWidget);
@@ -51,58 +53,64 @@ void BackupSettingsPage::setupUI()
     // Auto backup settings
     QGroupBox *autoBackupGroup = new QGroupBox("Automatic Backup", this);
     QVBoxLayout *autoBackupLayout = new QVBoxLayout(autoBackupGroup);
-    m_autoBackupCheck = new QCheckBox("Enable automatic backups", this);
-    // Apply Qt-compatible checkbox style (simple, no unsupported CSS properties)
-    QString switchStyle = R"(
-        QCheckBox::indicator {
-            width: 40px;
-            height: 24px;
-            border-radius: 12px;
-            border: 2px solid #aaa;
-        }
-        QCheckBox::indicator:unchecked {
-            background: #ccc;
-        }
-        QCheckBox::indicator:checked {
-            background: #4CAF50;
-            border: 2px solid #388E3C;
-        }
-    )";
-    m_autoBackupCheck->setStyleSheet(switchStyle);
-    autoBackupLayout->addWidget(m_autoBackupCheck);
+    m_autoBackupCheck = QuteNote::makeOwned<QCheckBox>("Enable automatic backups", this);
+    // Style the checkbox as a toggle switch using theme colors
+    {
+        const Theme& theme = ThemeManager::instance()->currentTheme();
+        const QString borderCol = theme.colors.border.name();
+        const QString offBg = theme.colors.surface.name();
+        const QString onBg = theme.colors.accent.name();
+        const QString onBorder = theme.colors.primary.name();
+
+        QString switchStyle = QString(
+            "QCheckBox::indicator {"
+            "    width: 40px; height: 24px; border-radius: 12px;"
+            "    border: 2px solid %1;"
+            "}"
+            "QCheckBox::indicator:unchecked {"
+            "    background: %2;"
+            "}"
+            "QCheckBox::indicator:checked {"
+            "    background: %3;"
+            "    border: 2px solid %4;"
+            "}"
+        ).arg(borderCol, offBg, onBg, onBorder);
+        m_autoBackupCheck->setStyleSheet(switchStyle);
+    }
+    autoBackupLayout->addWidget(m_autoBackupCheck.get());
     mainLayout->addWidget(autoBackupGroup);
 
     // Manual backup section
     QGroupBox *manualBackupGroup = new QGroupBox("Manual Backup", this);
     QVBoxLayout *manualBackupLayout = new QVBoxLayout(manualBackupGroup);
-    m_lastBackupLabel = new QLabel(this);
-    manualBackupLayout->addWidget(m_lastBackupLabel);
+    m_lastBackupLabel = QuteNote::makeOwned<QLabel>(this);
+    manualBackupLayout->addWidget(m_lastBackupLabel.get());
     QHBoxLayout *buttonLayout = new QHBoxLayout();
-    m_backupNowBtn = new QPushButton("Backup Now", this);
-    m_restoreBtn = new QPushButton("Restore from Backup", this);
-    buttonLayout->addWidget(m_backupNowBtn);
-    buttonLayout->addWidget(m_restoreBtn);
+    m_backupNowBtn = QuteNote::makeOwned<QPushButton>("Backup Now", this);
+    m_restoreBtn = QuteNote::makeOwned<QPushButton>("Restore from Backup", this);
+    buttonLayout->addWidget(m_backupNowBtn.get());
+    buttonLayout->addWidget(m_restoreBtn.get());
     buttonLayout->addStretch();
     manualBackupLayout->addLayout(buttonLayout);
     mainLayout->addWidget(manualBackupGroup);
     mainLayout->addStretch();
 
     // Connect signals
-    connect(m_browseBtn, &QPushButton::clicked, this, &BackupSettingsPage::onBrowseBackupLocation);
-    connect(m_backupNowBtn, &QPushButton::clicked, this, &BackupSettingsPage::onBackupNow);
-    connect(m_restoreBtn, &QPushButton::clicked, this, &BackupSettingsPage::onRestoreBackup);
-    connect(m_autoBackupCheck, &QCheckBox::checkStateChanged, this, &BackupSettingsPage::onAutoBackupChanged);
-    connect(m_backupLocationEdit, &QLineEdit::textChanged, this, &BackupSettingsPage::settingsChanged);
-    connect(m_autoBackupInterval, QOverload<int>::of(&QSpinBox::valueChanged), this, &BackupSettingsPage::settingsChanged);
-    connect(m_autoBackupCheck, &QCheckBox::toggled, this, &BackupSettingsPage::settingsChanged);
+    connect(m_browseBtn.get(), &QPushButton::clicked, this, &BackupSettingsPage::onBrowseBackupLocation);
+    connect(m_backupNowBtn.get(), &QPushButton::clicked, this, &BackupSettingsPage::onBackupNow);
+    connect(m_restoreBtn.get(), &QPushButton::clicked, this, &BackupSettingsPage::onRestoreBackup);
+    connect(m_autoBackupCheck.get(), &QCheckBox::checkStateChanged, this, &BackupSettingsPage::onAutoBackupChanged);
+    connect(m_backupLocationEdit.get(), &QLineEdit::textChanged, this, &BackupSettingsPage::settingsChanged);
+    connect(m_autoBackupInterval.get(), QOverload<int>::of(&QSpinBox::valueChanged), this, &BackupSettingsPage::settingsChanged);
+    connect(m_autoBackupCheck.get(), &QCheckBox::toggled, this, &BackupSettingsPage::settingsChanged);
 
     // Apply theme styling to the spinbox
-    ThemeManager::instance()->applyThemeToSpinBox(m_autoBackupInterval);
+    ThemeManager::instance()->applyThemeToSpinBox(m_autoBackupInterval.get());
 }
 
 void BackupSettingsPage::loadSettings()
 {
-    QSettings settings;
+    QSettings& settings = UIUtils::quteSettings();
     QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
                          + "/QuteNote/Backups";
     
@@ -120,7 +128,7 @@ void BackupSettingsPage::loadSettings()
 
 void BackupSettingsPage::saveSettings()
 {
-    QSettings settings;
+    QSettings& settings = UIUtils::quteSettings();
     settings.setValue("backupLocation", m_backupLocationEdit->text());
     settings.setValue("autoBackupEnabled", m_autoBackupCheck->isChecked());
     settings.setValue("autoBackupInterval", m_autoBackupInterval->value());
@@ -160,8 +168,7 @@ void BackupSettingsPage::onBackupNow()
     QString backupPath = backupDir + "/backup_" + timestamp;
     
     createBackup(backupPath);
-    QSettings settings;
-    settings.setValue("lastBackupTime", QDateTime::currentDateTime().toString());
+    UIUtils::quteSettings().setValue("lastBackupTime", QDateTime::currentDateTime().toString());
     m_lastBackupLabel->setText("Last backup: " + QDateTime::currentDateTime().toString());
     
     QMessageBox::information(this, "Backup",
@@ -210,4 +217,15 @@ bool BackupSettingsPage::restoreFromBackup(const QString &path)
     // Implementation for restoring from backup archive
     // ... (implementation omitted for brevity)
     return true;
+}
+
+void BackupSettingsPage::resizeEvent(QResizeEvent *event)
+{
+    QWidget::resizeEvent(event);
+    
+    // Check if narrow layout is needed
+    bool isNarrow = width() < 480;
+    if (m_locationLayout) {
+        m_locationLayout->setDirection(isNarrow ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
+    }
 }

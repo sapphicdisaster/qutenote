@@ -10,10 +10,13 @@
 #include <QActionGroup>
 #include <QScrollBar>
 #include <QScrollArea>
+#include <QStandardPaths>
+#include <QSettings>
 
 class QToolBar;
 class QPushButton;
 class QLabel;
+class QMainWindow;
 
 namespace UIUtils {
 
@@ -52,10 +55,35 @@ QSize getTouchFriendlySize(bool isLarge = false);
 QLabel* createStatusLabel(const QString& text, QWidget* parent = nullptr);
 void updateStatusLabel(QLabel* label, const QString& text, bool isError = false);
 
+// Status bar
+void showStatusMessage(QWidget* source, const QString& message, int timeoutMs = 3000);
+
+// Default notes directory
+QString defaultNotesDirectory();
+
+// Shared QSettings accessor — provides a single consistent QSettings instance
+// using organization "QuteNote" and application "QuteNote".
+QSettings& quteSettings();
+
 // Platform-specific adaptations
 bool isMobileDevice();
 void adaptForMobile(QWidget* widget);
 void adaptForTouch(QWidget* widget);
+
+// Apply desktop-only window setup (title, minimum size, default size).
+// No-op on Android where the OS manages window dimensions.
+void setupDesktopWindow(QWidget* window, const QString& title,
+                        int minWidth, int minHeight,
+                        int defaultWidth, int defaultHeight);
+
+// Quit the application safely across platforms.
+// On Android uses QTimer::singleShot to avoid event-loop issues,
+// on desktop calls quit() directly.
+void quitApplication();
+
+// Show a window correctly on each platform.
+// Calls showMaximized() on Android, show() on desktop.
+void showWindow(QWidget* window);
 
 } // namespace UIUtils
 

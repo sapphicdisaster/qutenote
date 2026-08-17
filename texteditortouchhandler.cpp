@@ -8,7 +8,7 @@ TextEditorTouchHandler::TextEditorTouchHandler(TextEditor* textEditor)
     : TouchInteractionHandler(textEditor)
     , m_textEditor(textEditor)
     , m_scroller(nullptr)
-    , m_touchInteraction(new TouchInteraction(m_textEditor))
+    , m_touchInteraction(QuteNote::makeOwned<TouchInteraction>(m_textEditor))
 {
     if (!m_textEditor) return;
     
@@ -17,7 +17,7 @@ TextEditorTouchHandler::TextEditorTouchHandler(TextEditor* textEditor)
     
     // Configure touch interaction physics
     m_touchInteraction->setBouncePreset(TouchInteraction::Normal);
-    connect(m_touchInteraction, &TouchInteraction::bounceScaleChanged,
+    connect(m_touchInteraction.get(), &TouchInteraction::bounceScaleChanged,
             m_textEditor, &TextEditor::setZoomFactor);
     
     // Fix Android cursor positioning
@@ -34,7 +34,7 @@ TextEditorTouchHandler::~TextEditorTouchHandler()
 {
     if (m_textEditor) {
         disableGestureHandling(m_textEditor);
-        QScroller::ungrabGesture(m_textEditor->viewport());
+        cleanupQScroller(m_textEditor->viewport());
     }
 }
 
@@ -43,19 +43,7 @@ void TextEditorTouchHandler::setupScrolling()
     if (!m_textEditor || !m_textEditor->viewport()) return;
 
 #ifndef Q_OS_ANDROID
-    m_scroller = QScroller::scroller(m_textEditor->viewport());
-    QScrollerProperties props = m_scroller->scrollerProperties();
-    
-    props.setScrollMetric(QScrollerProperties::VerticalOvershootPolicy, 
-                         QScrollerProperties::OvershootWhenScrollable);
-    props.setScrollMetric(QScrollerProperties::OvershootDragResistanceFactor, 0.5);
-    props.setScrollMetric(QScrollerProperties::OvershootDragDistanceFactor, 0.3);
-    
-    m_scroller->setScrollerProperties(props);
-    
-    // Only grab touch gestures on the viewport, not the entire editor
-    // This prevents interference with toolbar buttons
-    QScroller::grabGesture(m_textEditor->viewport(), QScroller::TouchGesture);
+    m_scroller = setupQScroller(m_textEditor->viewport());
 #endif
     
     updateScrollLimits();

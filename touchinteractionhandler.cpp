@@ -1,10 +1,11 @@
 #include "touchinteractionhandler.h"
 #include <QWidget>
 #include <QTouchEvent>
-#include <QPushButton>
+#include <QAbstractButton>
 #include <QSlider>
-#include <QSpinBox>
-#include <QCheckBox>
+#include <QComboBox>
+#include <QAbstractSpinBox>
+#include <QScroller>
 
 TouchInteractionHandler::TouchInteractionHandler(QObject* parent)
     : QObject(parent)
@@ -32,10 +33,19 @@ void TouchInteractionHandler::disableGestureHandling(QWidget* widget)
 bool TouchInteractionHandler::eventFilter(QObject* watched, QEvent* event)
 {
     switch (event->type()) {
-        case QEvent::Gesture:
-            return handleGesture(static_cast<QGestureEvent*>(event)->gesture(Qt::PinchGesture)) ||
-                   handleGesture(static_cast<QGestureEvent*>(event)->gesture(Qt::SwipeGesture)) ||
-                   handleGesture(static_cast<QGestureEvent*>(event)->gesture(Qt::PanGesture));
+        case QEvent::Gesture: {
+            QGestureEvent* gestureEvent = static_cast<QGestureEvent*>(event);
+            if (QGesture* pinch = gestureEvent->gesture(Qt::PinchGesture)) {
+                if (handleGesture(pinch)) return true;
+            }
+            if (QGesture* swipe = gestureEvent->gesture(Qt::SwipeGesture)) {
+                if (handleGesture(swipe)) return true;
+            }
+            if (QGesture* pan = gestureEvent->gesture(Qt::PanGesture)) {
+                if (handleGesture(pan)) return true;
+            }
+            return false;
+        }
         
         case QEvent::TouchBegin:
             return handleTouchBegin(static_cast<QTouchEvent*>(event));
@@ -91,14 +101,18 @@ bool TouchInteractionHandler::handleTouchBegin(QTouchEvent* event)
     // Check if the touch is on a button or other interactive element
     QWidget* widget = qobject_cast<QWidget*>(parent());
     if (widget) {
-        QWidget* child = widget->childAt(m_lastTouchPoint.toPoint());
-        if (child && (qobject_cast<QPushButton*>(child) || 
-                      qobject_cast<QSlider*>(child) || 
-                      qobject_cast<QSpinBox*>(child) ||
-                      qobject_cast<QCheckBox*>(child))) {
-            // Don't handle touches on interactive elements
-            m_gestureInProgress = false;
-            return false;
+        QPoint localPos = widget->mapFromGlobal(event->points().first().globalPosition().toPoint());
+        QWidget* child = widget->childAt(localPos);
+        while (child && child != widget) {
+            if (qobject_cast<QAbstractButton*>(child) || 
+                qobject_cast<QSlider*>(child) || 
+                qobject_cast<QComboBox*>(child) ||
+                qobject_cast<QAbstractSpinBox*>(child)) {
+                // Don't handle touches on interactive elements
+                m_gestureInProgress = false;
+                return false;
+            }
+            child = child->parentWidget();
         }
     }
     
@@ -117,4 +131,31 @@ bool TouchInteractionHandler::handleTouchEnd(QTouchEvent* event)
 {
     m_gestureInProgress = false;
     return true;
+}
+
+QScroller* TouchInteractionHandler::setupQScroller(QWidget* target,
+                                                    qreal overshootResistance,
+                                                    qreal overshootDistance)
+{
+    if (!target) return nullptr;
+
+    QScroller* scroller = QScroller::scroller(target);
+    QScrollerProperties props = scroller->scrollerProperties();
+
+    props.setScrollMetric(QScrollerProperties::VerticalOvershootPolicy,
+                          QScrollerProperties::OvershootWhenScrollable);
+    props.setScrollMetric(QScrollerProperties::OvershootDragResistanceFactor, overshootResistance);
+    props.setScrollMetric(QScrollerProperties::OvershootDragDistanceFactor, overshootDistance);
+
+    scroller->setScrollerProperties(props);
+    QScroller::grabGesture(target, QScroller::TouchGesture);
+
+    return scroller;
+}
+
+void TouchInteractionHandler::cleanupQScroller(QWidget* target)
+{
+    if (target) {
+        QScroller::ungrabGesture(target);
+    }
 }

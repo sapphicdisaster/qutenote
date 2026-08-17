@@ -28,6 +28,7 @@ class QActionGroup;
 class QScrollArea;
 class QScrollBar;
 class ImageSettingsDialog;
+struct ThemeMetrics;
 
 class TextEditor : public QuteNote::ComponentBase
 {
@@ -107,8 +108,9 @@ private slots:
     void onFontChanged(const QFont &font);
     void onFontSizeChanged(const QString &size);
     void onCursorPositionChanged();
+#ifdef Q_OS_ANDROID
     void onLongPressDetected();
-    
+#endif
     // Image insertion
     void insertImage(const QString &imagePath);
     void onImageReceived(const QString &imagePath);
@@ -203,6 +205,9 @@ private:
     // Helper for image interactions
     void showImageSettings(const QRect &rect, const QTextImageFormat &format);
     void updateImageSettings(int widthPct, Qt::Alignment alignment);
+
+    // Toolbar helpers
+    void addToolbarActions(const QList<QAction*> &actions, const ThemeMetrics &metrics);
 };
 
 #endif // TEXTEDITOR_H

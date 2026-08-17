@@ -83,7 +83,22 @@ void ThemeManager::applyCurrentThemeStyles()
         QMainWindow {
             background-color: {{BACKGROUND}};
         }
+        QMainWindow::separator {
+            width: 0px;
+            height: 0px;
+            border: none;
+        }
         MainView, SettingsView, ThemeSettingsPage, BackupSettingsPage {
+            color: {{TEXT}};
+            background-color: {{BACKGROUND}};
+        }
+        /* Qt stylesheets do not inherit color to child widgets like
+           QLabel/QCheckBox/QGroupBox — scope them explicitly so settings
+           pages show the correct theme text color on all platforms. */
+        SettingsView QLabel, SettingsView QCheckBox, SettingsView QGroupBox,
+        ThemeSettingsPage QLabel, ThemeSettingsPage QCheckBox, ThemeSettingsPage QGroupBox,
+        BackupSettingsPage QLabel, BackupSettingsPage QCheckBox, BackupSettingsPage QGroupBox {
+            color: {{TEXT}};
         }
         QMessageBox {
             border-radius: {{BORDER_RADIUS}}px;
@@ -95,6 +110,7 @@ void ThemeManager::applyCurrentThemeStyles()
         }
         /* Removed global QWidget font-family and font-size to prevent layout issues */
         QPushButton {
+            color: {{TEXT}};
             min-height: {{TOUCH_TARGET}}px;
             padding: {{SPACING}}px {{SPACING2}}px;
             border-radius: {{BORDER_RADIUS}}px;
@@ -110,7 +126,7 @@ void ThemeManager::applyCurrentThemeStyles()
         /* Toolbar background and checked / active state for checkable buttons (toolbar toggles, etc.) */
              /* Make toolbars use the derived plate color so the toolbar buttons
                  region matches the fixed plate areas and scrollbar tracks. */
-             QToolBar { background: {{PLATE}}; }
+             QToolBar { background: {{PLATE}}; border: none; }
              /* Ensure any scrollbars inside toolbars use the same plate color for
                  their tracks/grooves so the area behind the handle doesn't appear
                  lighter than the toolbar plate. */
@@ -129,6 +145,7 @@ void ThemeManager::applyCurrentThemeStyles()
         }
         /* Set base for text entry widgets */
         QTextEdit, QLineEdit, QPlainTextEdit {
+            color: {{TEXT}};
             background-color: {{BASE}};
             border: none;
             padding: 0px;
@@ -221,6 +238,7 @@ void ThemeManager::applyCurrentThemeStyles()
     styleSheet.replace("{{SPACING}}", QString::number(theme.metrics.spacing));
     styleSheet.replace("{{SPACING2}}", QString::number(theme.metrics.spacing * 2));
     styleSheet.replace("{{BORDER_RADIUS}}", QString::number(theme.metrics.borderRadius));
+    styleSheet.replace("{{TEXT}}", theme.colors.text.name());
     styleSheet.replace("{{HIGHLIGHT}}", theme.colors.highlight.name());
     styleSheet.replace("{{PRIMARY}}", theme.colors.primary.name());
     styleSheet.replace("{{BORDER}}", theme.colors.border.name());
@@ -266,8 +284,7 @@ void ThemeManager::applyCurrentThemeStyles()
           #ToolbarLeftFixed QToolButton, #ToolbarRow QToolButton {
             background: {{COMBO_BG}};
             color: {{COMBO_TEXT}};
-            border: 2px solid {{OUTLINE_COLOR}};
-            /* box-shadow is not supported by Qt stylesheets; skip to avoid warnings */
+            border: none;
             border-top-left-radius: {{BORDER_RADIUS}}px;
             border-top-right-radius: {{BORDER_RADIUS}}px;
             border-bottom-left-radius: {{BORDER_RADIUS}}px;
@@ -280,9 +297,19 @@ void ThemeManager::applyCurrentThemeStyles()
            region matches the button outlines visually. Only the border is set
            so we don't alter the titlebar's background color. */
         TitleBarWidget {
-            border: 2px solid {{OUTLINE_COLOR}};
+            border: 1px solid {{OUTLINE_COLOR}};
             border-radius: {{BORDER_RADIUS}}px;
         }
+
+        /* Thin separators between toolbars and editor content */
+        #ToolbarRow {
+            border-bottom: 1px solid {{OUTLINE_COLOR}};
+        }
+        #EditorToolbar {
+            border-top: 1px solid {{OUTLINE_COLOR}};
+        }
+        /* Suppress platform-native frames on scroll areas used as toolbar wrappers */
+        #ToolbarArea, QScrollArea { border: none; }
 
         /* Font selector and size combo in TextEditor: curved corners, no drop shadow.
            Force a dark combo background, white text, and make the drop button match
@@ -328,12 +355,17 @@ void ThemeManager::applyCurrentThemeStyles()
             border-radius: 1px;
         }
 
-        /* Status bar should match the top bar plate and use white text */
+        /* Status bar blends with theme background instead of dark plate */
         QStatusBar {
-            background: {{PLATE_COLOR}};
-            color: #ffffff;
+            background: {{STATUS_BAR_BG}};
+            color: {{STATUS_BAR_TEXT}};
+            border: none;
+            border-top: none;
+            padding: 0px;
+            margin: 0px;
         }
-        QStatusBar QLabel, QStatusBar * { color: #ffffff; }
+        QStatusBar::item { border: none; }
+        QStatusBar QLabel, QStatusBar * { color: {{STATUS_BAR_TEXT}}; }
         QWidget[touch-friendly=true]:pressed { background-color: rgba(128,128,128,0.12); }
 
         /* Global QComboBox dropdown styling so all combobox popups get themed */
@@ -346,12 +378,19 @@ void ThemeManager::applyCurrentThemeStyles()
         }
         )");
 
+    QString statusBarBg = theme.colors.background.isValid()
+        ? theme.colors.background.name()
+        : QStringLiteral("#FFC0CB");
+    QString statusBarText = theme.colors.text.isValid()
+        ? theme.colors.text.name()
+        : QStringLiteral("#4A4A4A");
+    extra.replace("{{STATUS_BAR_BG}}", statusBarBg);
+    extra.replace("{{STATUS_BAR_TEXT}}", statusBarText);
     extra.replace("{{OUTLINE_COLOR}}", outlineColor);
     extra.replace("{{BORDER_RADIUS}}", QString::number(theme.metrics.borderRadius));
     extra.replace("{{SPACING}}", QString::number(theme.metrics.spacing));
     extra.replace("{{COMBO_BG}}", comboBg);
     extra.replace("{{COMBO_TEXT}}", comboText);
-    extra.replace("{{PLATE_COLOR}}", plateColor);
     extra.replace("{{ACCENT}}", theme.colors.accent.name());
     extra.replace("{{SURFACE}}", theme.colors.surface.name());
 
@@ -784,43 +823,10 @@ void ThemeManager::applyThemeToEditor(TextEditor *editor, const EditorTheme &the
     
         // Apply editor stylesheet first
         if (editor) {
-                // Determine toolbar background for the editor: prefer explicit editorMenuBackground
-                // falling back to a darker variant of the general menuBackground.
-                Theme cur = m_currentTheme;
-                QColor toolbarBg = cur.colors.editorMenuBackground.isValid()
-                    ? cur.colors.editorMenuBackground
-                    : cur.colors.menuBackground.darker(120);
-                QColor toolbarText = cur.colors.toolbarTextIcon.isValid()
-                    ? cur.colors.toolbarTextIcon
-                    : ((toolbarBg.lightness() < 128) ? QColor("#ffffff") : cur.colors.text);
-
                 QString editorSs = styleSheet + QString("\n"
                     "TextEditor {"
                     "    background-color: %1;"
-                    "    border: 2px solid %2;"
-                    "    border-radius: %3px;"
-                    "    padding: %4px;"
-                    "}"
-                    "QToolBar {"
-                    "    spacing: 2px;"
-                    "    padding: 0px;"
-                    "    background: %5;"
-                    "    color: %6;"
-                    "}"
-                    "QToolBar QToolButton {"
-                    "    min-width: 48px;"
-                    "    min-height: 44px;"
-                    "    padding: 4px;"
-                    "    margin: 1px;"
-                    "    border: 2px solid %2;"
-                    "    border-top-left-radius: %3px;"
-                    "    border-top-right-radius: %3px;"
-                    "    border-bottom-left-radius: %3px;"
-                    "    border-bottom-right-radius: %3px;"
-                    "}"
-                    "QToolBar QWidget {"
-                    "    margin: 0px;"
-                    "}").arg(theme.backgroundColor.name()).arg(cur.colors.highlight.name()).arg(cur.metrics.borderRadius).arg(cur.metrics.spacing).arg(toolbarBg.name()).arg(toolbarText.name());
+                    "}").arg(theme.backgroundColor.name());
 
                 editor->setStyleSheet(editorSs);
                 editor->setFont(theme.editorFont);

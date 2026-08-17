@@ -2,13 +2,9 @@
 #define TEXTEDITORTOUCHHANDLER_H
 
 #include "touchinteractionhandler.h"
-#include <QScroller>
-#include <QPinchGesture>
-#include <QSwipeGesture>
-#include <QPanGesture>
-#include <QTouchEvent>
+#include "smartpointers.h"
 
-// Forward declarations to avoid circular dependencies
+class QScroller;
 class TextEditor;
 class TouchInteraction;
 
@@ -36,8 +32,8 @@ private:
     void updateScrollLimits();
 
     TextEditor* m_textEditor;
-    QScroller* m_scroller;
-    TouchInteraction* m_touchInteraction;
+    QScroller* m_scroller = nullptr;
+    QuteNote::OwnedPtr<TouchInteraction> m_touchInteraction;
     qreal m_currentScale{1.0};
     qreal m_lastOverscrollAmount{0.0};
     

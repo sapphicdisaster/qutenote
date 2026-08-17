@@ -3,12 +3,14 @@
 
 #include <QWidget>
 #include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QPushButton>
 #include <QLabel>
 #include <QLineEdit>
 #include <QCheckBox>
 #include <QSpinBox>
 #include <QGroupBox>
+#include "smartpointers.h"
 
 class BackupSettingsPage : public QWidget
 {
@@ -22,6 +24,9 @@ public:
 signals:
     void settingsChanged(); // Emitted when backup settings are changed
 
+protected:
+    void resizeEvent(QResizeEvent *event) override;
+
 private slots:
     void onBackupNow();
     void onRestoreBackup();
@@ -33,13 +38,14 @@ private:
     bool createBackup(const QString &path);
     bool restoreFromBackup(const QString &path);
 
-    QLineEdit *m_backupLocationEdit;
-    QCheckBox *m_autoBackupCheck;
-    QSpinBox *m_autoBackupInterval;
-    QLabel *m_lastBackupLabel;
-    QPushButton *m_backupNowBtn;
-    QPushButton *m_restoreBtn;
-    QPushButton *m_browseBtn;
+    QuteNote::OwnedPtr<QLineEdit> m_backupLocationEdit;
+    QuteNote::OwnedPtr<QCheckBox> m_autoBackupCheck;
+    QuteNote::OwnedPtr<QSpinBox> m_autoBackupInterval;
+    QuteNote::OwnedPtr<QLabel> m_lastBackupLabel;
+    QuteNote::OwnedPtr<QPushButton> m_backupNowBtn;
+    QuteNote::OwnedPtr<QPushButton> m_restoreBtn;
+    QuteNote::OwnedPtr<QPushButton> m_browseBtn;
+    QuteNote::OwnedPtr<QHBoxLayout> m_locationLayout;
 };
 
 #endif // BACKUPSETTINGSPAGE_H

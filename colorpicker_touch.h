@@ -7,6 +7,7 @@
 #include <QShowEvent>
 #include "touchinteraction.h"
 #include "huesatmap.h"
+#include "smartpointers.h"
 #include <functional>
 class QPushButton;
 
@@ -71,13 +72,13 @@ private:
     static const int COLOR_GRID_COLUMNS = 4;
     static const int MAX_RECENT_COLORS = 16;
     
-    TouchInteraction *m_touchInteraction;
-    HueSatMap *m_hueSatMap;
-    QWidget *m_colorPreview;
-    QWidget *m_touchSlider;
-    QWidget *m_recentColorsWidget;
-    QPushButton *m_okButton;
-    QPushButton *m_cancelButton;
+    QuteNote::OwnedPtr<TouchInteraction> m_touchInteraction;
+    QuteNote::OwnedPtr<HueSatMap> m_hueSatMap;
+    QuteNote::OwnedPtr<QWidget> m_colorPreview;
+    QWidget *m_touchSlider = nullptr;
+    QuteNote::OwnedPtr<QWidget> m_recentColorsWidget;
+    QuteNote::OwnedPtr<QPushButton> m_okButton;
+    QuteNote::OwnedPtr<QPushButton> m_cancelButton;
     QWidget *m_backdrop;
     qreal m_scale;
     QColor m_color;

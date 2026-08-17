@@ -5,6 +5,7 @@
 #include <QWidget>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QBoxLayout>
 #include <QTabWidget>
 #include <QGroupBox>
 #include <QLabel>
@@ -17,7 +18,6 @@
 #include <QFontDialog>
 #include <QListWidget>
 #include <QTextEdit>
-#include <QSettings>
 #include "themesettingspage.h"
 #include "backupsettingspage.h"
 #include "licensesettingspage.h"
@@ -66,6 +66,7 @@ private:
     
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
 
     QuteNote::OwnedPtr<SettingsViewTouchHandler> m_touchHandler;
     QuteNote::OwnedPtr<QTabWidget> m_tabWidget;
@@ -119,7 +120,7 @@ protected:
     QuteNote::OwnedPtr<LicenseSettingsPage> m_licenseTab;
 
     QuteNote::OwnedPtr<QVBoxLayout> m_mainLayout;
-    QuteNote::OwnedPtr<QSettings> m_settings;
+    QBoxLayout *m_notesDirLayout = nullptr;
 };
 
 #endif // SETTINGSVIEW_H

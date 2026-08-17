@@ -2,6 +2,7 @@
 #include <QIcon>
 #include "uiutils.h"
 #include "thememanager.h"
+#include "smartpointers.h"
 #include <QApplication>
 #include <QEvent>
 #include <QMouseEvent>
@@ -125,22 +126,22 @@ void ImageSettingsDialog::setupUI()
     mainLayout->addWidget(resizeLabel);
 
     QHBoxLayout *sliderLayout = new QHBoxLayout();
-    m_widthSlider = new QSlider(Qt::Horizontal, this);
+    m_widthSlider = QuteNote::makeOwned<QSlider>(Qt::Horizontal, this);
     m_widthSlider->setRange(10, 100);
     m_widthSlider->setValue(100);
     // Touch friendly slider
     m_widthSlider->setFixedHeight(theme.metrics.touchTarget);
     
-    m_widthLabel = new QLabel("100%", this);
+    m_widthLabel = QuteNote::makeOwned<QLabel>("100%", this);
     m_widthLabel->setMinimumWidth(40);
     m_widthLabel->setFont(theme.defaultFont); // Keep value label normal size
     m_widthLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
-    sliderLayout->addWidget(m_widthSlider);
-    sliderLayout->addWidget(m_widthLabel);
+    sliderLayout->addWidget(m_widthSlider.get());
+    sliderLayout->addWidget(m_widthLabel.get());
     mainLayout->addLayout(sliderLayout);
 
-    connect(m_widthSlider, &QSlider::valueChanged, this, &ImageSettingsDialog::onSliderValueChanged);
+    connect(m_widthSlider.get(), &QSlider::valueChanged, this, &ImageSettingsDialog::onSliderValueChanged);
 
     // --- Alignment Section ---
     QLabel *alignLabel = new QLabel(tr("Alignment"), this);
@@ -148,7 +149,7 @@ void ImageSettingsDialog::setupUI()
     mainLayout->addWidget(alignLabel);
 
     QHBoxLayout *alignLayout = new QHBoxLayout();
-    m_alignGroup = new QButtonGroup(this);
+    m_alignGroup = QuteNote::makeOwned<QButtonGroup>(this);
     m_alignGroup->setExclusive(true);
 
     auto createAlignBtn = [&](const QString &icon, Qt::Alignment align) -> QPushButton* {
@@ -170,7 +171,7 @@ void ImageSettingsDialog::setupUI()
     alignLayout->addStretch();
     mainLayout->addLayout(alignLayout);
 
-    connect(m_alignGroup, &QButtonGroup::buttonClicked, this, &ImageSettingsDialog::onAlignmentChanged);
+    connect(m_alignGroup.get(), &QButtonGroup::buttonClicked, this, &ImageSettingsDialog::onAlignmentChanged);
 }
 
 void ImageSettingsDialog::setImageProperties(int widthPct, Qt::Alignment alignment)

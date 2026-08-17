@@ -7,6 +7,8 @@
 #include <QSwipeGesture>
 #include <QPanGesture>
 
+class QScroller;
+
 class TouchInteractionHandler : public QObject {
     Q_OBJECT
 
@@ -29,6 +31,14 @@ protected:
     virtual bool handleTouchBegin(QTouchEvent* event);
     virtual bool handleTouchUpdate(QTouchEvent* event);
     virtual bool handleTouchEnd(QTouchEvent* event);
+
+    // Shared QScroller setup — consolidates the duplicated scroller configuration
+    // across TextEditorTouchHandler, FileBrowserTouchHandler, and SettingsViewTouchHandler.
+    // Returns the configured QScroller, or nullptr if target is null.
+    QScroller* setupQScroller(QWidget* target,
+                              qreal overshootResistance = 0.5,
+                              qreal overshootDistance = 0.3);
+    void cleanupQScroller(QWidget* target);
 
 private:
     bool handleGesture(QGesture* gesture);
