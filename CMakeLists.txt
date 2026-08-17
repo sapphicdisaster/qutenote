@@ -4,7 +4,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 cmake_minimum_required(VERSION 3.16)
 
-project(QuteNote VERSION 2.0.0 LANGUAGES CXX)
+project(QuteNote VERSION 2.1.0 LANGUAGES CXX)
 
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
@@ -123,8 +123,8 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
 # Define target properties for Android with Qt 6
     set_property(TARGET QuteNote APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR
                  ${CMAKE_CURRENT_SOURCE_DIR}/android)
-    set_property(TARGET QuteNote APPEND PROPERTY QT_ANDROID_VERSION_CODE 4)
-    set_property(TARGET QuteNote APPEND PROPERTY QT_ANDROID_VERSION_NAME "2.0.0")
+    set_property(TARGET QuteNote APPEND PROPERTY QT_ANDROID_VERSION_CODE 5)
+    set_property(TARGET QuteNote APPEND PROPERTY QT_ANDROID_VERSION_NAME "2.1.0")
     set_property(TARGET QuteNote APPEND PROPERTY QT_ANDROID_TARGET_SDK_VERSION 35)
 
     qt_create_translation(QM_FILES ${CMAKE_SOURCE_DIR} ${TS_FILES})
